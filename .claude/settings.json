@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /home/user/agentmail-harness && bun run typecheck 2>&1"
+          }
+        ]
+      }
+    ]
+  }
+}
