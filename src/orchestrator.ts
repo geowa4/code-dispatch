@@ -1,19 +1,19 @@
+import type { Database } from "bun:sqlite";
+import { join } from "node:path";
 import {
+  createSdkMcpServer,
   query,
   tool,
-  createSdkMcpServer,
 } from "@anthropic-ai/claude-agent-sdk";
-import { z } from "zod";
-import { join } from "node:path";
-import type { Database } from "bun:sqlite";
-import type { Config } from "./config.js";
 import type { AgentMailClient } from "agentmail";
+import { z } from "zod";
+import type { Config } from "./config.js";
+import type { ThreadRow } from "./db.js";
+import type { MailMessage, MailThread } from "./mail.js";
+import { getLastMessageId, replyToThread } from "./mail.js";
+import { readProgress } from "./progress.js";
 import { TmuxController } from "./tmux.js";
 import { createWorktree, listRepos } from "./worktree.js";
-import { readProgress } from "./progress.js";
-import { replyToThread, getLastMessageId } from "./mail.js";
-import type { MailThread, MailMessage } from "./mail.js";
-import type { ThreadRow } from "./db.js";
 
 interface CreateWorkerArgs {
   thread_id: string;
@@ -215,9 +215,7 @@ export function createOrchestratorTools(
       prompt: z
         .string()
         .describe("Full prompt to pass to claude -p in this window"),
-      repo_path: z
-        .string()
-        .describe("Path to the git repo under work-dir"),
+      repo_path: z.string().describe("Path to the git repo under work-dir"),
       branch_base: z
         .string()
         .describe("Base branch/commit to create the worktree from")
@@ -225,7 +223,9 @@ export function createOrchestratorTools(
     },
     async (args) => {
       const result = await createWorkerImpl(args, config, db);
-      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result) }],
+      };
     },
   );
 
@@ -237,7 +237,9 @@ export function createOrchestratorTools(
     async () => {
       const status = await getAllStatusImpl(db);
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
+        content: [
+          { type: "text" as const, text: JSON.stringify(status, null, 2) },
+        ],
       };
     },
   );
@@ -266,7 +268,9 @@ export function createOrchestratorTools(
         lastMsgId,
         args.body,
       );
-      return { content: [{ type: "text" as const, text: `Reply sent: ${replyId}` }] };
+      return {
+        content: [{ type: "text" as const, text: `Reply sent: ${replyId}` }],
+      };
     },
   );
 
@@ -276,7 +280,9 @@ export function createOrchestratorTools(
     {},
     async () => {
       const repos = listRepos(config.workDir);
-      return { content: [{ type: "text" as const, text: JSON.stringify(repos) }] };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(repos) }],
+      };
     },
   );
 
@@ -291,13 +297,18 @@ export function createOrchestratorTools(
       if (!args.sql.trim().toUpperCase().startsWith("SELECT")) {
         return {
           content: [
-            { type: "text" as const, text: "Error: only SELECT queries allowed" },
+            {
+              type: "text" as const,
+              text: "Error: only SELECT queries allowed",
+            },
           ],
         };
       }
       const rows = db.query(args.sql).all();
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(rows, null, 2) }],
+        content: [
+          { type: "text" as const, text: JSON.stringify(rows, null, 2) },
+        ],
       };
     },
   );
@@ -320,7 +331,7 @@ export async function handleMessage(
   message: MailMessage,
   config: Config,
   db: Database,
-  mail: AgentMailClient,
+  _mail: AgentMailClient,
   orchestratorTools: ReturnType<typeof createOrchestratorTools>,
 ): Promise<void> {
   const existingThread = db

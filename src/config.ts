@@ -69,11 +69,11 @@ export function parseConfig(): Config {
       .split(",")
       .map((d) => d.trim().toLowerCase()),
     workDir: flags["work-dir"],
-    pollInterval: parseInt(flags["poll-interval"]!, 10) * 1000,
+    pollInterval: parseInt(flags["poll-interval"] ?? "300", 10) * 1000,
     dbPath: flags.db ?? `${flags["work-dir"]}/dispatch.db`,
-    model: flags.model!,
-    workerModel: flags["worker-model"]!,
-    maxTurns: parseInt(flags["max-turns"]!, 10),
+    model: flags.model ?? "claude-sonnet-4-6",
+    workerModel: flags["worker-model"] ?? "claude-sonnet-4-6",
+    maxTurns: parseInt(flags["max-turns"] ?? "50", 10),
   } as const;
 }
 

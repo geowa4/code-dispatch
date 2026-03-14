@@ -2,9 +2,9 @@ import type { Database } from "bun:sqlite";
 import type { AgentMailClient } from "agentmail";
 import type { Config } from "./config.js";
 import type { WindowRow } from "./db.js";
-import { TmuxController } from "./tmux.js";
+import { getLastMessageId, replyToThread } from "./mail.js";
 import { readProgress } from "./progress.js";
-import { replyToThread, getLastMessageId } from "./mail.js";
+import { TmuxController } from "./tmux.js";
 
 interface RunningWindowRow extends WindowRow {
   session_name: string;

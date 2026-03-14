@@ -1,9 +1,9 @@
 import { execSync } from "node:child_process";
-import { parseConfig, AGENTMAIL_API_KEY } from "./config.js";
+import { checkWorkerCompletion } from "./completion.js";
+import { AGENTMAIL_API_KEY, parseConfig } from "./config.js";
 import { initDatabase } from "./db.js";
 import { createMailClient, pollInbox } from "./mail.js";
 import { createOrchestratorTools, handleMessage } from "./orchestrator.js";
-import { checkWorkerCompletion } from "./completion.js";
 
 const config = parseConfig();
 

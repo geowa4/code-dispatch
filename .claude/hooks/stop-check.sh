@@ -15,4 +15,9 @@ if ! bun run typecheck 2>&1; then
   exit 2
 fi
 
+if ! bun run lint 2>&1; then
+  echo "Linting failed. Fix lint errors before stopping." >&2
+  exit 2
+fi
+
 exit 0

@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { join, dirname, basename } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 export function createWorktree(
   repoPath: string,
@@ -31,10 +31,7 @@ export function createWorktree(
   return worktreePath;
 }
 
-export function removeWorktree(
-  repoPath: string,
-  worktreePath: string,
-): void {
+export function removeWorktree(repoPath: string, worktreePath: string): void {
   execSync(`git worktree remove "${worktreePath}" --force`, {
     cwd: repoPath,
     stdio: "pipe",
