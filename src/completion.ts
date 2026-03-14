@@ -14,6 +14,8 @@ export async function checkWorkerCompletion(
   db: Database,
   mail: AgentMailClient,
   config: Config,
+  createTmux: (session: string) => TmuxController = (s) =>
+    new TmuxController(s),
 ): Promise<void> {
   const runningWindows = db
     .query(
@@ -25,7 +27,7 @@ export async function checkWorkerCompletion(
     .all() as RunningWindowRow[];
 
   for (const win of runningWindows) {
-    const tmux = new TmuxController(win.session_name);
+    const tmux = createTmux(win.session_name);
 
     let idle: boolean;
     try {

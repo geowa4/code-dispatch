@@ -1,6 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach, mock, beforeAll } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { initDatabase } from "./db.js";
+import { checkWorkerCompletion } from "./completion.js";
+import type { TmuxController } from "./tmux.js";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -11,26 +13,17 @@ import {
   insertTestMessage,
 } from "./test-utils.js";
 
-// Mock TmuxController before importing completion (no other test file uses tmux)
-const mockIsIdle = mock(() => Promise.resolve(true));
-
-mock.module("./tmux.js", () => ({
-  TmuxController: class MockTmuxController {
-    constructor(_session: string) {}
-    isIdle = mockIsIdle;
-    ensureSession = mock(() => Promise.resolve());
-    sendKeys = mock(() => Promise.resolve());
-  },
-}));
-
-let checkWorkerCompletion: typeof import("./completion.js").checkWorkerCompletion;
-
-beforeAll(async () => {
-  const mod = await import("./completion.js");
-  checkWorkerCompletion = mod.checkWorkerCompletion;
-});
-
 const tmpDir = join(import.meta.dir, "../.test-tmp-completion");
+
+function createMockTmux(isIdleResult: boolean | Error = true) {
+  const isIdle = mock(() => {
+    if (isIdleResult instanceof Error) throw isIdleResult;
+    return Promise.resolve(isIdleResult);
+  });
+  const factory = (_session: string) =>
+    ({ isIdle } as unknown as TmuxController);
+  return { factory, isIdle };
+}
 
 describe("checkWorkerCompletion", () => {
   let db: Database;
@@ -38,8 +31,6 @@ describe("checkWorkerCompletion", () => {
 
   beforeEach(() => {
     db = initDatabase(":memory:");
-    mockIsIdle.mockReset();
-    mockIsIdle.mockImplementation(() => Promise.resolve(true));
     mkdirSync(tmpDir, { recursive: true });
   });
 
@@ -81,6 +72,7 @@ describe("checkWorkerCompletion", () => {
 
   test("completes a done worker — sends success reply, updates DB", async () => {
     const { client, mocks } = createMockMailClient();
+    const { factory } = createMockTmux(true);
     const progressFile = writeProgress("done.json", {
       status: "done",
       summary: "All tasks completed",
@@ -89,7 +81,7 @@ describe("checkWorkerCompletion", () => {
     });
     seedRunningWorker({ progressFile });
 
-    await checkWorkerCompletion(db, client, config);
+    await checkWorkerCompletion(db, client, config, factory);
 
     // Verify reply was sent with success content
     expect(mocks.reply).toHaveBeenCalledTimes(1);
@@ -114,6 +106,7 @@ describe("checkWorkerCompletion", () => {
 
   test("completes an errored worker — sends error reply", async () => {
     const { client, mocks } = createMockMailClient();
+    const { factory } = createMockTmux(true);
     const progressFile = writeProgress("error.json", {
       status: "error",
       summary: "Build failed",
@@ -122,7 +115,7 @@ describe("checkWorkerCompletion", () => {
     });
     seedRunningWorker({ progressFile });
 
-    await checkWorkerCompletion(db, client, config);
+    await checkWorkerCompletion(db, client, config, factory);
 
     expect(mocks.reply).toHaveBeenCalledTimes(1);
     const replyArgs = mocks.reply.mock.calls[0] as unknown[];
@@ -138,6 +131,7 @@ describe("checkWorkerCompletion", () => {
 
   test("skips non-idle windows", async () => {
     const { client, mocks } = createMockMailClient();
+    const { factory } = createMockTmux(false);
     const progressFile = writeProgress("done2.json", {
       status: "done",
       summary: "Done",
@@ -146,9 +140,7 @@ describe("checkWorkerCompletion", () => {
     });
     seedRunningWorker({ progressFile });
 
-    mockIsIdle.mockImplementation(() => Promise.resolve(false));
-
-    await checkWorkerCompletion(db, client, config);
+    await checkWorkerCompletion(db, client, config, factory);
 
     expect(mocks.reply).not.toHaveBeenCalled();
 
@@ -160,6 +152,7 @@ describe("checkWorkerCompletion", () => {
 
   test("skips windows where progress status is still running", async () => {
     const { client, mocks } = createMockMailClient();
+    const { factory } = createMockTmux(true);
     const progressFile = writeProgress("running.json", {
       status: "running",
       summary: "Still working",
@@ -168,7 +161,7 @@ describe("checkWorkerCompletion", () => {
     });
     seedRunningWorker({ progressFile });
 
-    await checkWorkerCompletion(db, client, config);
+    await checkWorkerCompletion(db, client, config, factory);
 
     expect(mocks.reply).not.toHaveBeenCalled();
 
@@ -180,10 +173,11 @@ describe("checkWorkerCompletion", () => {
 
   test("skips windows with no progress file", async () => {
     const { client, mocks } = createMockMailClient();
+    const { factory } = createMockTmux(true);
     // Use default nonexistent progress file path
     seedRunningWorker();
 
-    await checkWorkerCompletion(db, client, config);
+    await checkWorkerCompletion(db, client, config, factory);
 
     expect(mocks.reply).not.toHaveBeenCalled();
 
@@ -195,13 +189,10 @@ describe("checkWorkerCompletion", () => {
 
   test("handles tmux session gone — marks window as error", async () => {
     const { client, mocks } = createMockMailClient();
+    const { factory } = createMockTmux(new Error("tmux session not found"));
     seedRunningWorker();
 
-    mockIsIdle.mockImplementation(() => {
-      throw new Error("tmux session not found");
-    });
-
-    await checkWorkerCompletion(db, client, config);
+    await checkWorkerCompletion(db, client, config, factory);
 
     expect(mocks.reply).not.toHaveBeenCalled();
 
@@ -242,12 +233,15 @@ describe("checkWorkerCompletion", () => {
 
     // Only first window is idle+done; second is not idle
     let callCount = 0;
-    mockIsIdle.mockImplementation(() => {
-      callCount++;
-      return Promise.resolve(callCount === 1);
-    });
+    const factory = (_session: string) =>
+      ({
+        isIdle: mock(() => {
+          callCount++;
+          return Promise.resolve(callCount === 1);
+        }),
+      }) as unknown as TmuxController;
 
-    await checkWorkerCompletion(db, client, config);
+    await checkWorkerCompletion(db, client, config, factory);
 
     // Thread should still be active since window-b is still running
     const thread = db
