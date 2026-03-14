@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /home/user/agentmail-harness && bun run typecheck 2>&1"
+            "command": "bun run typecheck 2>&1"
           }
         ]
       }
