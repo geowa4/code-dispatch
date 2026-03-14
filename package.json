@@ -5,6 +5,8 @@
   "scripts": {
     "start": "bun run src/main.ts",
     "dev": "bun --watch run src/main.ts",
+    "test": "bun test",
+    "test:ci": "bun test --coverage-reporter=lcov",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
