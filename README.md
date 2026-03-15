@@ -82,6 +82,52 @@ bun run start \
 
 This starts Dispatch polling every 60 seconds, accepting emails from `acme.com` and `example.org` senders, with repos located under `~/projects`.
 
+## Deployment
+
+### Build
+
+```bash
+bun run build   # produces ./dispatch
+```
+
+### Install as a systemd user service
+
+Requires [lingering](https://www.freedesktop.org/software/systemd/man/latest/loginctl.html) enabled so the service runs without an active login session:
+
+```bash
+sudo loginctl enable-linger $USER
+```
+
+Copy the binary and unit file:
+
+```bash
+install -D dispatch ~/.local/bin/dispatch
+install -D dispatch.service ~/.config/systemd/user/dispatch.service
+```
+
+Create the environment file at `~/.config/dispatch/env`:
+
+```bash
+mkdir -p ~/.config/dispatch
+cat > ~/.config/dispatch/env << 'EOF'
+AGENTMAIL_API_KEY=sk-am-...
+CLAUDE_CODE_OAUTH_TOKEN=...
+DISPATCH_INBOX=dispatch@inbox.agentmail.to
+DISPATCH_ALLOWED_DOMAINS=acme.com,example.org
+DISPATCH_WORK_DIR=/home/you/projects
+EOF
+chmod 600 ~/.config/dispatch/env
+```
+
+Enable and start:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now dispatch
+systemctl --user status dispatch       # check it's running
+journalctl --user -u dispatch -f       # tail logs
+```
+
 ## Development
 
 ```bash

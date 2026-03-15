@@ -1,0 +1,17 @@
+[Unit]
+Description=Dispatch — email-driven AI agent orchestrator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/dispatch/env
+ExecStart=%h/.local/bin/dispatch \
+  --inbox ${DISPATCH_INBOX} \
+  --allowed-domains ${DISPATCH_ALLOWED_DOMAINS} \
+  --work-dir ${DISPATCH_WORK_DIR}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
