@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { Database } from "bun:sqlite";
 import type { Config } from "./config.js";
 import type { AgentMailClient } from "agentmail";
-import type { ThreadRow, WindowRow } from "./db.js";
+import { getThread, countWindowsByStatus, type ThreadRow, type WindowRow } from "./db.js";
 import { listRepos, removeWorktree, findMainWorktree } from "./worktree.js";
 import { readProgress } from "./progress.js";
 import { replyToThread, getLastMessageId } from "./mail.js";
@@ -18,10 +18,10 @@ async function buildThreadReport(db: Database, thread: ThreadRow) {
     .query("SELECT * FROM windows WHERE thread_id = ?")
     .all(thread.thread_id) as WindowRow[];
 
+  const tmux = new TmuxController(thread.session_name);
   const windowReports = [];
   for (const win of windows) {
     const progress = await readProgress(win.progress_file);
-    const tmux = new TmuxController(thread.session_name);
     let paneState = "unknown";
     try {
       paneState = (await tmux.isIdle(win.window_name)) ? "idle" : "busy";
@@ -64,9 +64,7 @@ async function getThreadStatusImpl(
   db: Database,
   threadId: string,
 ): Promise<object> {
-  const thread = db
-    .query("SELECT * FROM threads WHERE thread_id = ?")
-    .get(threadId) as ThreadRow | null;
+  const thread = getThread(db, threadId);
 
   if (!thread) {
     return { error: "Thread not found", thread_id: threadId };
@@ -84,9 +82,7 @@ export async function cancelThreadImpl(
     removeWorktree(repoPath, wp);
   },
 ): Promise<object> {
-  const thread = db
-    .query("SELECT * FROM threads WHERE thread_id = ?")
-    .get(threadId) as ThreadRow | null;
+  const thread = getThread(db, threadId);
 
   if (!thread) {
     return { error: "Thread not found", thread_id: threadId };
@@ -146,9 +142,11 @@ export async function cancelThreadImpl(
     } catch {
       /* session may already be gone */
     }
+    const hasErrors = countWindowsByStatus(db, threadId, "error") > 0;
+    const threadStatus = hasErrors ? "error" : "done";
     db.run(
-      "UPDATE threads SET status = 'done', updated_at = datetime('now') WHERE thread_id = ?",
-      [threadId],
+      "UPDATE threads SET status = ?, updated_at = datetime('now') WHERE thread_id = ?",
+      [threadStatus, threadId],
     );
   }
 
@@ -200,8 +198,13 @@ export function createOrchestratorTools(
         .default("HEAD"),
     },
     async (args) => {
-      const result = await createWorkerImpl(args, config, db);
-      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      try {
+        const result = await createWorkerImpl(args, config, db);
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return { content: [{ type: "text" as const, text: `Error creating worker: ${message}` }] };
+      }
     },
   );
 
@@ -259,21 +262,29 @@ export function createOrchestratorTools(
 
   const sendReplyTool = tool(
     "send_reply",
-    "Send an email reply in a thread. Use for status updates or task completion notices.",
+    "Send an email reply in a thread. Use this to respond to the user after " +
+      "creating workers, checking status, or handling errors. " +
+      "Note: worker completion/failure notifications are sent automatically — " +
+      "you do not need to send_reply for those.",
     {
-      thread_id: z.string(),
+      thread_id: z.string().describe("The email thread ID to reply to"),
       body: z.string().describe("Plain text body of the reply"),
     },
     async (args) => {
-      const thread = db
-        .query("SELECT * FROM threads WHERE thread_id = ?")
-        .get(args.thread_id) as ThreadRow | null;
+      const thread = getThread(db, args.thread_id);
       if (!thread) {
         return {
           content: [{ type: "text" as const, text: "Error: thread not found" }],
         };
       }
-      const lastMsgId = getLastMessageId(db, args.thread_id);
+      let lastMsgId: string;
+      try {
+        lastMsgId = getLastMessageId(db, args.thread_id);
+      } catch {
+        return {
+          content: [{ type: "text" as const, text: "Error: no messages found for this thread — cannot reply" }],
+        };
+      }
       const replyId = await replyToThread(
         mail,
         config.inbox,
@@ -298,7 +309,12 @@ export function createOrchestratorTools(
   const queryDbTool = tool(
     "query_db",
     "Run a read-only SQL query against the Dispatch state database. " +
-      "Use this to look up threads, windows, and their statuses. " +
+      "Tables: threads (thread_id, inbox_id, subject, sender, repo_path, session_name, " +
+      "status ['active'|'paused'|'done'|'error'], created_at, updated_at), " +
+      "windows (window_id, thread_id, window_name, worktree_path, branch_name, " +
+      "progress_file, task_summary, status ['running'|'done'|'error'|'cancelled'], " +
+      "started_at, finished_at, last_reply_id), " +
+      "messages_seen (message_id, thread_id, seen_at). " +
       `Results are limited to ${MAX_QUERY_ROWS} rows.`,
     {
       sql: z.string().describe("SELECT query to run"),

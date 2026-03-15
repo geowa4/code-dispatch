@@ -2,9 +2,9 @@ import { join } from "node:path";
 import { writeFileSync } from "node:fs";
 import type { Database } from "bun:sqlite";
 import type { Config } from "./config.js";
-import type { ThreadRow } from "./db.js";
+import { getThread } from "./db.js";
 import { TmuxController } from "./tmux.js";
-import { createWorktree, resolveRepoPath } from "./worktree.js";
+import { createWorktree, removeWorktree, resolveRepoPath } from "./worktree.js";
 
 export interface CreateWorkerArgs {
   thread_id: string;
@@ -14,10 +14,23 @@ export interface CreateWorkerArgs {
   branch_base: string;
 }
 
+export interface WorkerDeps {
+  createWorktree: typeof createWorktree;
+  removeWorktree: typeof removeWorktree;
+  tmuxFactory: (session: string) => TmuxController;
+}
+
+const defaultDeps: WorkerDeps = {
+  createWorktree,
+  removeWorktree,
+  tmuxFactory: (session) => new TmuxController(session),
+};
+
 export async function createWorkerImpl(
   args: CreateWorkerArgs,
   config: Config,
   db: Database,
+  deps: WorkerDeps = defaultDeps,
 ): Promise<{
   window_name: string;
   worktree_path: string;
@@ -25,9 +38,7 @@ export async function createWorkerImpl(
 }> {
   const repoPath = resolveRepoPath(config.workDir, args.repo_path);
 
-  const threadRow = db
-    .query("SELECT * FROM threads WHERE thread_id = ?")
-    .get(args.thread_id) as ThreadRow | null;
+  const threadRow = getThread(db, args.thread_id);
 
   if (!threadRow) {
     throw new Error(`Thread ${args.thread_id} not found — it should be created before calling create_worker`);
@@ -41,7 +52,7 @@ export async function createWorkerImpl(
     .replace(/^-|-$/g, "")
     .slice(0, 30);
   const branchName = `dispatch/${sessionName}/${windowSlug}`;
-  const worktreePath = createWorktree(repoPath, branchName, args.branch_base);
+  const worktreePath = deps.createWorktree(repoPath, branchName, args.branch_base);
 
   const progressFile = join(worktreePath, ".dispatch-progress.json");
 
@@ -59,10 +70,11 @@ export async function createWorkerImpl(
     ],
   );
 
-  const tmux = new TmuxController(sessionName);
-  await tmux.ensureSession(windowSlug, worktreePath);
+  try {
+    const tmux = deps.tmuxFactory(sessionName);
+    await tmux.ensureSession(windowSlug, worktreePath);
 
-  const progressInstruction = `
+    const progressInstruction = `
 
 IMPORTANT: You MUST periodically write progress updates to the file:
   ${progressFile}
@@ -86,23 +98,36 @@ If any bash commands will take a long time (more than ~30 seconds), run them
 in the background or mention that they are long-running in your progress file
 before starting them.`;
 
-  const fullPrompt = args.prompt + progressInstruction;
-  const promptFile = `/tmp/dispatch-prompt-${args.thread_id.slice(0, 8)}-${windowSlug}.txt`;
-  writeFileSync(promptFile, fullPrompt, "utf-8");
+    const fullPrompt = args.prompt + progressInstruction;
+    const promptFile = `/tmp/dispatch-prompt-${args.thread_id.slice(0, 8)}-${windowSlug}.txt`;
+    writeFileSync(promptFile, fullPrompt, "utf-8");
 
-  const resultFile = join(worktreePath, ".dispatch-result.json");
+    const resultFile = join(worktreePath, ".dispatch-result.json");
 
-  const claudeCmd = [
-    "claude",
-    "--dangerously-skip-permissions",
-    `-p "$(cat '${promptFile}')"`,
-    `--model ${config.workerModel}`,
-    `--max-turns ${config.maxTurns}`,
-    "--output-format json",
-    `> '${resultFile}' 2>&1`,
-  ].join(" ");
+    const claudeCmd = [
+      "claude",
+      "--dangerously-skip-permissions",
+      `-p "$(cat '${promptFile}')"`,
+      `--model ${config.workerModel}`,
+      `--max-turns ${config.maxTurns}`,
+      "--output-format json",
+      `> '${resultFile}' 2>&1`,
+    ].join(" ");
 
-  await tmux.sendKeys(windowSlug, claudeCmd);
+    await tmux.sendKeys(windowSlug, claudeCmd);
+  } catch (err) {
+    console.error(`Worker setup failed for ${windowSlug}:`, err);
+    db.run(
+      "UPDATE windows SET status = 'error', finished_at = datetime('now') WHERE thread_id = ? AND window_name = ?",
+      [args.thread_id, windowSlug],
+    );
+    try {
+      deps.removeWorktree(repoPath, worktreePath);
+    } catch {
+      /* best-effort cleanup */
+    }
+    throw err;
+  }
 
   return {
     window_name: windowSlug,

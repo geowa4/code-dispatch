@@ -219,4 +219,27 @@ describe("cancelThreadImpl", () => {
       .get("t1") as { status: string };
     expect(win.status).toBe("cancelled");
   });
+
+  test("marks thread error when cancelling leaves error windows behind", async () => {
+    const { factory } = createMockTmux();
+    const worktreeRemover = createMockWorktreeRemover();
+
+    insertTestThread(db, { thread_id: "t1", session_name: "session-1" });
+    insertTestWindow(db, "t1", {
+      window_name: "errored-earlier",
+      status: "error",
+    });
+    insertTestWindow(db, "t1", {
+      window_name: "still-running",
+      status: "running",
+    });
+
+    await cancelThreadImpl(db, "t1", factory, worktreeRemover);
+
+    // Thread should be "error" (not "done") because one window has error status
+    const thread = db
+      .query("SELECT status FROM threads WHERE thread_id = ?")
+      .get("t1") as { status: string };
+    expect(thread.status).toBe("error");
+  });
 });

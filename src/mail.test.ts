@@ -216,6 +216,55 @@ describe("pollInbox", () => {
     expect(handleMessage).toHaveBeenCalledTimes(2);
   });
 
+  test("does not mark message seen when handleMessage throws", async () => {
+    const { client, mocks } = createMockMailClient();
+    mocks.list.mockResolvedValueOnce({
+      threads: [{ threadId: "t1" }],
+    });
+    mocks.get.mockResolvedValueOnce({
+      threadId: "t1",
+      subject: "Crash test",
+      messages: [
+        { messageId: "m1", from: "user@example.com", text: "cause crash" },
+      ],
+    });
+
+    insertTestThread(db, { thread_id: "t1" });
+
+    const handleMessage = mock(() => Promise.reject(new Error("handler crash")));
+
+    await expect(
+      pollInbox(client, config, db, handleMessage),
+    ).rejects.toThrow("handler crash");
+
+    // Message should NOT be in messages_seen since handleMessage threw before insert
+    const seen = db
+      .query("SELECT 1 FROM messages_seen WHERE message_id = ?")
+      .get("m1");
+    expect(seen).toBeNull();
+  });
+
+  test("skips messages with malformed from address", async () => {
+    const { client, mocks } = createMockMailClient();
+    mocks.list.mockResolvedValueOnce({
+      threads: [{ threadId: "t1" }],
+    });
+    mocks.get.mockResolvedValueOnce({
+      threadId: "t1",
+      subject: "Weird sender",
+      messages: [
+        { messageId: "m1", from: undefined, text: "hello" },
+        { messageId: "m2", from: "", text: "hello" },
+        { messageId: "m3", from: "no-at-sign", text: "hello" },
+      ],
+    });
+
+    const handleMessage = mock(() => Promise.resolve());
+    await pollInbox(client, config, db, handleMessage);
+
+    expect(handleMessage).not.toHaveBeenCalled();
+  });
+
   test("skips threads with no messages", async () => {
     const { client, mocks } = createMockMailClient();
     mocks.list.mockResolvedValueOnce({

@@ -59,6 +59,25 @@ export interface ThreadRow {
   updated_at: string;
 }
 
+export function getThread(db: Database, threadId: string): ThreadRow | null {
+  return db
+    .query("SELECT * FROM threads WHERE thread_id = ?")
+    .get(threadId) as ThreadRow | null;
+}
+
+export function countWindowsByStatus(
+  db: Database,
+  threadId: string,
+  status: string,
+): number {
+  const row = db
+    .query(
+      "SELECT COUNT(*) as cnt FROM windows WHERE thread_id = ? AND status = ?",
+    )
+    .get(threadId, status) as { cnt: number };
+  return row.cnt;
+}
+
 export interface WindowRow {
   window_id: number;
   thread_id: string;
