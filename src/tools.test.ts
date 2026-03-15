@@ -33,7 +33,7 @@ describe("cancelThreadImpl edge cases", () => {
     db = initDatabase(":memory:");
   });
 
-  test("marks thread done considering mix of done/cancelled/error windows", async () => {
+  test("marks thread error when mix includes error windows", async () => {
     const killWindow = () => Promise.resolve();
     const killSession = () => Promise.resolve();
     const factory = (_s: string) =>
@@ -51,11 +51,11 @@ describe("cancelThreadImpl edge cases", () => {
 
     expect(result.cancelled_windows).toBe(1);
 
-    // Thread should be marked done since no running windows remain
+    // Thread should be "error" because w2 has error status
     const thread = db
       .query("SELECT status FROM threads WHERE thread_id = ?")
       .get("t1") as { status: string };
-    expect(thread.status).toBe("done");
+    expect(thread.status).toBe("error");
   });
 
   test("handles thread with only non-running windows", async () => {

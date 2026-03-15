@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { Database } from "bun:sqlite";
 import type { Config } from "./config.js";
 import type { AgentMailClient } from "agentmail";
-import { getThread, type ThreadRow, type WindowRow } from "./db.js";
+import { getThread, countWindowsByStatus, type ThreadRow, type WindowRow } from "./db.js";
 import { listRepos, removeWorktree, findMainWorktree } from "./worktree.js";
 import { readProgress } from "./progress.js";
 import { replyToThread, getLastMessageId } from "./mail.js";
@@ -142,9 +142,11 @@ export async function cancelThreadImpl(
     } catch {
       /* session may already be gone */
     }
+    const hasErrors = countWindowsByStatus(db, threadId, "error") > 0;
+    const threadStatus = hasErrors ? "error" : "done";
     db.run(
-      "UPDATE threads SET status = 'done', updated_at = datetime('now') WHERE thread_id = ?",
-      [threadId],
+      "UPDATE threads SET status = ?, updated_at = datetime('now') WHERE thread_id = ?",
+      [threadStatus, threadId],
     );
   }
 
