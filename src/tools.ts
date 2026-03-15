@@ -165,6 +165,16 @@ export function createOrchestratorTools(
           ],
         };
       }
+      if (trimmed.includes(";")) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Error: multiple statements not allowed",
+            },
+          ],
+        };
+      }
       try {
         const limited = `SELECT * FROM (${trimmed}) LIMIT ${MAX_QUERY_ROWS}`;
         const rows = db.query(limited).all();

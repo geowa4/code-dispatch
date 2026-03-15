@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { writeFileSync } from "node:fs";
 import type { Database } from "bun:sqlite";
 import type { Config } from "./config.js";
 import type { ThreadRow } from "./db.js";
@@ -11,8 +12,6 @@ export interface CreateWorkerArgs {
   prompt: string;
   repo_path: string;
   branch_base: string;
-  subject?: string;
-  sender?: string;
 }
 
 export async function createWorkerImpl(
@@ -30,23 +29,11 @@ export async function createWorkerImpl(
     .query("SELECT * FROM threads WHERE thread_id = ?")
     .get(args.thread_id) as ThreadRow | null;
 
-  const sessionName =
-    threadRow?.session_name ?? `dispatch-${args.thread_id.slice(0, 8)}`;
-
   if (!threadRow) {
-    db.run(
-      `INSERT INTO threads (thread_id, inbox_id, subject, sender, repo_path, session_name)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        args.thread_id,
-        config.inbox,
-        args.subject ?? null,
-        args.sender ?? "unknown",
-        repoPath,
-        sessionName,
-      ],
-    );
+    throw new Error(`Thread ${args.thread_id} not found — it should be created before calling create_worker`);
   }
+
+  const sessionName = threadRow.session_name;
 
   const windowSlug = args.task_summary
     .toLowerCase()
@@ -100,14 +87,15 @@ in the background or mention that they are long-running in your progress file
 before starting them.`;
 
   const fullPrompt = args.prompt + progressInstruction;
-  const escapedPrompt = fullPrompt.replace(/'/g, "'\\''");
+  const promptFile = `/tmp/dispatch-prompt-${args.thread_id.slice(0, 8)}-${windowSlug}.txt`;
+  writeFileSync(promptFile, fullPrompt, "utf-8");
 
   const resultFile = join(worktreePath, ".dispatch-result.json");
 
   const claudeCmd = [
     "claude",
     "--dangerously-skip-permissions",
-    `-p '${escapedPrompt}'`,
+    `-p "$(cat '${promptFile}')"`,
     `--model ${config.workerModel}`,
     `--max-turns ${config.maxTurns}`,
     "--output-format json",

@@ -14,14 +14,25 @@ export async function handleMessage(
   _mail: AgentMailClient,
   orchestratorTools: ReturnType<typeof createOrchestratorTools>,
 ): Promise<void> {
-  const existingThread = db
+  let existingThread = db
     .query("SELECT * FROM threads WHERE thread_id = ?")
     .get(thread.threadId) as ThreadRow | null;
 
-  const threadContext = existingThread
-    ? `Existing thread. Session: ${existingThread.session_name}. ` +
-      `Status: ${existingThread.status}.`
-    : "New thread — no session exists yet.";
+  if (!existingThread) {
+    const sessionName = `dispatch-${thread.threadId.slice(0, 8)}`;
+    db.run(
+      `INSERT INTO threads (thread_id, inbox_id, subject, sender, session_name)
+       VALUES (?, ?, ?, ?, ?)`,
+      [thread.threadId, config.inbox, thread.subject ?? null, message.from, sessionName],
+    );
+    existingThread = db
+      .query("SELECT * FROM threads WHERE thread_id = ?")
+      .get(thread.threadId) as ThreadRow;
+  }
+
+  const threadContext =
+    `Existing thread. Session: ${existingThread.session_name}. ` +
+    `Status: ${existingThread.status}.`;
 
   const systemPrompt = `You are Dispatch, an AI agent orchestrator. You manage a team of
 Claude Code workers running in tmux sessions. You receive tasks via email and delegate

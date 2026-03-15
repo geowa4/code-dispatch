@@ -63,17 +63,29 @@ export function parseConfig(): Config {
     process.exit(1);
   }
 
+  const pollInterval = parseInt(flags["poll-interval"]!, 10);
+  if (isNaN(pollInterval) || pollInterval <= 0) {
+    console.error("Fatal: --poll-interval must be a positive number");
+    process.exit(1);
+  }
+
+  const maxTurns = parseInt(flags["max-turns"]!, 10);
+  if (isNaN(maxTurns) || maxTurns <= 0) {
+    console.error("Fatal: --max-turns must be a positive number");
+    process.exit(1);
+  }
+
   return {
     inbox: flags.inbox,
     allowedDomains: flags["allowed-domains"]
       .split(",")
       .map((d) => d.trim().toLowerCase()),
     workDir: flags["work-dir"],
-    pollInterval: parseInt(flags["poll-interval"]!, 10) * 1000,
+    pollInterval: pollInterval * 1000,
     dbPath: flags.db ?? `${flags["work-dir"]}/dispatch.db`,
     model: flags.model!,
     workerModel: flags["worker-model"]!,
-    maxTurns: parseInt(flags["max-turns"]!, 10),
+    maxTurns,
   } as const;
 }
 

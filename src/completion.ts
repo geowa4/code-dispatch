@@ -33,7 +33,17 @@ export async function checkWorkerCompletion(
     try {
       idle = await tmux.isIdle(win.window_name);
     } catch {
-      // tmux session may have been killed externally
+      // tmux session may have been killed externally — notify user
+      try {
+        const lastMsgId = getLastMessageId(db, win.thread_id);
+        const errorBody =
+          `❌ Task failed: ${win.task_summary}\n\n` +
+          `Branch: ${win.branch_name}\n\n` +
+          `The tmux session was terminated unexpectedly.`;
+        await replyToThread(mail, config.inbox, win.thread_id, lastMsgId, errorBody);
+      } catch {
+        // best-effort reply; thread may not have messages yet
+      }
       db.run(
         "UPDATE windows SET status = 'error', finished_at = datetime('now') WHERE window_id = ?",
         [win.window_id],
@@ -82,9 +92,16 @@ export async function checkWorkerCompletion(
       .get(win.thread_id) as { cnt: number };
 
     if (stillRunning.cnt === 0) {
+      const hasErrors = db
+        .query(
+          "SELECT COUNT(*) as cnt FROM windows WHERE thread_id = ? AND status = 'error'",
+        )
+        .get(win.thread_id) as { cnt: number };
+
+      const threadStatus = hasErrors.cnt > 0 ? "error" : "done";
       db.run(
-        "UPDATE threads SET status = 'done', updated_at = datetime('now') WHERE thread_id = ?",
-        [win.thread_id],
+        "UPDATE threads SET status = ?, updated_at = datetime('now') WHERE thread_id = ?",
+        [threadStatus, win.thread_id],
       );
     }
   }

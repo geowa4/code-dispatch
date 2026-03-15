@@ -31,7 +31,6 @@ export class TmuxController {
 
   async isIdle(windowName: string): Promise<boolean> {
     const cmd = await this.getCurrentCommand(windowName);
-    return ["bash", "zsh", "sh", "fish", "bun", "node"].includes(cmd);
+    return ["bash", "zsh", "sh", "fish"].includes(cmd);
   }
-
 }
