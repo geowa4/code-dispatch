@@ -78,33 +78,36 @@ export async function pollInbox(
     // Fetch the full thread to get messages
     const thread = await mail.inboxes.threads.get(config.inbox, threadItem.threadId);
     const messages = thread.messages ?? [];
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg) continue;
+    if (messages.length === 0) continue;
 
-    const senderDomain = lastMsg.from?.split("@")[1]?.toLowerCase();
-    if (!senderDomain || !config.allowedDomains.includes(senderDomain)) {
-      continue;
+    // Process all unseen messages in the thread (not just the last)
+    for (const msg of messages) {
+      const senderDomain = msg.from?.split("@")[1]?.toLowerCase();
+      if (!senderDomain || !config.allowedDomains.includes(senderDomain)) {
+        continue;
+      }
+
+      const seen = db
+        .query("SELECT 1 FROM messages_seen WHERE message_id = ?")
+        .get(msg.messageId);
+      if (seen) continue;
+
+      await handleMessage(
+        { threadId: thread.threadId, subject: thread.subject },
+        {
+          messageId: msg.messageId,
+          from: msg.from,
+          text: msg.text,
+          extractedText: msg.extractedText,
+          extractedHtml: msg.extractedHtml,
+        },
+      );
+
+      // Insert after handleMessage so the thread row exists (FK constraint)
+      db.run(
+        "INSERT INTO messages_seen (message_id, thread_id) VALUES (?, ?)",
+        [msg.messageId, thread.threadId],
+      );
     }
-
-    const seen = db
-      .query("SELECT 1 FROM messages_seen WHERE message_id = ?")
-      .get(lastMsg.messageId);
-    if (seen) continue;
-
-    db.run(
-      "INSERT INTO messages_seen (message_id, thread_id) VALUES (?, ?)",
-      [lastMsg.messageId, thread.threadId],
-    );
-
-    await handleMessage(
-      { threadId: thread.threadId, subject: thread.subject },
-      {
-        messageId: lastMsg.messageId,
-        from: lastMsg.from,
-        text: lastMsg.text,
-        extractedText: lastMsg.extractedText,
-        extractedHtml: lastMsg.extractedHtml,
-      },
-    );
   }
 }

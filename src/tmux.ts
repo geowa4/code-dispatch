@@ -37,17 +37,6 @@ export class TmuxController {
 
   async isIdle(windowName: string): Promise<boolean> {
     const cmd = await this.getCurrentCommand(windowName);
-    return ["bash", "zsh", "sh", "fish", "bun", "node"].includes(cmd);
-  }
-
-  async splitPane(
-    windowName: string,
-    cwd: string,
-    command: string,
-  ): Promise<void> {
-    const target = `=${this.session}:=${windowName}`;
-    await $`tmux split-window -h -t ${target} -c ${cwd}`.quiet();
-    const newTarget = `=${this.session}:=${windowName}.{last}`;
-    await $`tmux send-keys -t ${newTarget} ${command} Enter`.quiet();
+    return ["bash", "zsh", "sh", "fish"].includes(cmd);
   }
 }

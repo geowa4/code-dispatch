@@ -75,9 +75,12 @@ describe("checkWorkerCompletion", () => {
     const { factory } = createMockTmux(true);
     const progressFile = writeProgress("done.json", {
       status: "done",
+      percent_complete: 100,
+      current_step: "done",
       summary: "All tasks completed",
       steps_completed: ["step 1", "step 2"],
       errors: [],
+      updated_at: new Date().toISOString(),
     });
     seedRunningWorker({ progressFile });
 
@@ -109,9 +112,12 @@ describe("checkWorkerCompletion", () => {
     const { factory } = createMockTmux(true);
     const progressFile = writeProgress("error.json", {
       status: "error",
+      percent_complete: 30,
+      current_step: "building",
       summary: "Build failed",
       steps_completed: [],
       errors: ["compilation error in main.ts"],
+      updated_at: new Date().toISOString(),
     });
     seedRunningWorker({ progressFile });
 
@@ -134,9 +140,12 @@ describe("checkWorkerCompletion", () => {
     const { factory } = createMockTmux(false);
     const progressFile = writeProgress("done2.json", {
       status: "done",
+      percent_complete: 100,
+      current_step: "done",
       summary: "Done",
       steps_completed: ["done"],
       errors: [],
+      updated_at: new Date().toISOString(),
     });
     seedRunningWorker({ progressFile });
 
@@ -155,9 +164,12 @@ describe("checkWorkerCompletion", () => {
     const { factory } = createMockTmux(true);
     const progressFile = writeProgress("running.json", {
       status: "running",
+      percent_complete: 50,
+      current_step: "working",
       summary: "Still working",
       steps_completed: ["step 1"],
       errors: [],
+      updated_at: new Date().toISOString(),
     });
     seedRunningWorker({ progressFile });
 
@@ -187,14 +199,17 @@ describe("checkWorkerCompletion", () => {
     expect(win.status).toBe("running");
   });
 
-  test("handles tmux session gone — marks window as error", async () => {
+  test("handles tmux session gone — sends error reply and marks window as error", async () => {
     const { client, mocks } = createMockMailClient();
     const { factory } = createMockTmux(new Error("tmux session not found"));
     seedRunningWorker();
 
     await checkWorkerCompletion(db, client, config, factory);
 
-    expect(mocks.reply).not.toHaveBeenCalled();
+    expect(mocks.reply).toHaveBeenCalledTimes(1);
+    const replyArgs = mocks.reply.mock.calls[0] as unknown[];
+    const replyBody = (replyArgs[2] as { text: string }).text;
+    expect(replyBody).toContain("tmux session was terminated");
 
     const win = db
       .query("SELECT status FROM windows WHERE thread_id = ?")
@@ -206,9 +221,12 @@ describe("checkWorkerCompletion", () => {
     const { client } = createMockMailClient();
     const progressFile = writeProgress("done3.json", {
       status: "done",
+      percent_complete: 100,
+      current_step: "done",
       summary: "Done",
       steps_completed: ["done"],
       errors: [],
+      updated_at: new Date().toISOString(),
     });
 
     // Seed a thread with two windows

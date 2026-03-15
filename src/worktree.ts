@@ -31,16 +31,6 @@ export function createWorktree(
   return worktreePath;
 }
 
-export function removeWorktree(
-  repoPath: string,
-  worktreePath: string,
-): void {
-  execSync(`git worktree remove "${worktreePath}" --force`, {
-    cwd: repoPath,
-    stdio: "pipe",
-  });
-}
-
 export function listRepos(workDir: string): string[] {
   const repos: string[] = [];
   try {

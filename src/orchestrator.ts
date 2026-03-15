@@ -5,6 +5,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { join } from "node:path";
+import { writeFileSync } from "node:fs";
 import type { Database } from "bun:sqlite";
 import type { Config } from "./config.js";
 import type { AgentMailClient } from "agentmail";
@@ -38,16 +39,11 @@ async function createWorkerImpl(
     .query("SELECT * FROM threads WHERE thread_id = ?")
     .get(args.thread_id) as ThreadRow | null;
 
-  const sessionName =
-    threadRow?.session_name ?? `dispatch-${args.thread_id.slice(0, 8)}`;
-
   if (!threadRow) {
-    db.run(
-      `INSERT INTO threads (thread_id, inbox_id, sender, repo_path, session_name)
-       VALUES (?, ?, ?, ?, ?)`,
-      [args.thread_id, config.inbox, "pending", repoPath, sessionName],
-    );
+    throw new Error(`Thread ${args.thread_id} not found — it should be created before calling create_worker`);
   }
+
+  const sessionName = threadRow.session_name;
 
   const windowSlug = args.task_summary
     .toLowerCase()
@@ -101,16 +97,18 @@ in the background or mention that they are long-running in your progress file
 before starting them.`;
 
   const fullPrompt = args.prompt + progressInstruction;
-  const escapedPrompt = fullPrompt.replace(/'/g, "'\\''");
+  const promptFile = `/tmp/dispatch-prompt-${args.thread_id.slice(0, 8)}-${windowSlug}.txt`;
+  writeFileSync(promptFile, fullPrompt, "utf-8");
 
+  const resultFile = `/tmp/dispatch-result-${args.thread_id.slice(0, 8)}-${windowSlug}.json`;
   const claudeCmd = [
     "claude",
     "--dangerously-skip-permissions",
-    `-p '${escapedPrompt}'`,
+    `-p "$(cat '${promptFile}')"`,
     `--model ${config.workerModel}`,
     `--max-turns ${config.maxTurns}`,
     "--output-format json",
-    `> /tmp/dispatch-result-${windowSlug}.json 2>&1`,
+    `> '${resultFile}' 2>&1`,
   ].join(" ");
 
   await tmux.sendKeys(windowSlug, claudeCmd);
@@ -120,31 +118,6 @@ before starting them.`;
     worktree_path: worktreePath,
     progress_file: progressFile,
   };
-}
-
-function buildWorkerSystemSuffix(
-  progressFile: string,
-  taskSummary: string,
-): string {
-  return `
-You are a worker agent managed by Dispatch. Your task: ${taskSummary}
-
-Progress reporting:
-- Write structured JSON progress to: ${progressFile}
-- Update after every meaningful step
-- Set status to "done" when finished, "error" if stuck
-
-Long-running commands:
-- If a bash command will take more than ~30 seconds, note this in your
-  progress file before running it
-- Prefer running long commands with output redirected to a log file so
-  you can continue working on other parts of the task
-
-Git workflow:
-- You are in a dedicated worktree on a dedicated branch
-- Commit frequently with descriptive messages
-- Do not push unless explicitly asked to in the task description
-`;
 }
 
 async function getAllStatusImpl(db: Database): Promise<object> {
@@ -288,14 +261,25 @@ export function createOrchestratorTools(
       sql: z.string().describe("SELECT query to run"),
     },
     async (args) => {
-      if (!args.sql.trim().toUpperCase().startsWith("SELECT")) {
+      const trimmed = args.sql.trim();
+      if (!trimmed.toUpperCase().startsWith("SELECT")) {
         return {
           content: [
             { type: "text" as const, text: "Error: only SELECT queries allowed" },
           ],
         };
       }
-      const rows = db.query(args.sql).all();
+      if (trimmed.includes(";")) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Error: multiple statements not allowed",
+            },
+          ],
+        };
+      }
+      const rows = db.query(trimmed).all();
       return {
         content: [{ type: "text" as const, text: JSON.stringify(rows, null, 2) }],
       };
@@ -323,14 +307,25 @@ export async function handleMessage(
   mail: AgentMailClient,
   orchestratorTools: ReturnType<typeof createOrchestratorTools>,
 ): Promise<void> {
-  const existingThread = db
+  let existingThread = db
     .query("SELECT * FROM threads WHERE thread_id = ?")
     .get(thread.threadId) as ThreadRow | null;
 
-  const threadContext = existingThread
-    ? `Existing thread. Session: ${existingThread.session_name}. ` +
-      `Status: ${existingThread.status}.`
-    : "New thread — no session exists yet.";
+  if (!existingThread) {
+    const sessionName = `dispatch-${thread.threadId.slice(0, 8)}`;
+    db.run(
+      `INSERT INTO threads (thread_id, inbox_id, subject, sender, session_name)
+       VALUES (?, ?, ?, ?, ?)`,
+      [thread.threadId, config.inbox, thread.subject ?? null, message.from, sessionName],
+    );
+    existingThread = db
+      .query("SELECT * FROM threads WHERE thread_id = ?")
+      .get(thread.threadId) as ThreadRow;
+  }
+
+  const threadContext =
+    `Existing thread. Session: ${existingThread.session_name}. ` +
+    `Status: ${existingThread.status}.`;
 
   const systemPrompt = `You are Dispatch, an AI agent orchestrator. You manage a team of
 Claude Code workers running in tmux sessions. You receive tasks via email and delegate
@@ -378,4 +373,3 @@ ${message.extractedText || message.text}`;
   }
 }
 
-export { buildWorkerSystemSuffix };
