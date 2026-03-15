@@ -22,12 +22,6 @@ export class TmuxController {
     await $`tmux send-keys -t ${target} ${command} Enter`.quiet();
   }
 
-  async capturePane(windowName: string): Promise<string> {
-    const target = `=${this.session}:=${windowName}`;
-    const result = await $`tmux capture-pane -t ${target} -p -J -S -`.text();
-    return result;
-  }
-
   async getCurrentCommand(windowName: string): Promise<string> {
     const target = `=${this.session}:=${windowName}`;
     const result =
@@ -37,17 +31,15 @@ export class TmuxController {
 
   async isIdle(windowName: string): Promise<boolean> {
     const cmd = await this.getCurrentCommand(windowName);
-    return ["bash", "zsh", "sh", "fish", "bun", "node"].includes(cmd);
+    return ["bash", "zsh", "sh", "fish"].includes(cmd);
   }
 
-  async splitPane(
-    windowName: string,
-    cwd: string,
-    command: string,
-  ): Promise<void> {
+  async killWindow(windowName: string): Promise<void> {
     const target = `=${this.session}:=${windowName}`;
-    await $`tmux split-window -h -t ${target} -c ${cwd}`.quiet();
-    const newTarget = `=${this.session}:=${windowName}.{last}`;
-    await $`tmux send-keys -t ${newTarget} ${command} Enter`.quiet();
+    await $`tmux kill-window -t ${target}`.quiet();
+  }
+
+  async killSession(): Promise<void> {
+    await $`tmux kill-session -t ${`=${this.session}`}`.quiet();
   }
 }

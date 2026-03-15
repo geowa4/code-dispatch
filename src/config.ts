@@ -21,6 +21,7 @@ Options:
   --model <name>             Claude model for the orchestrator agent (default: claude-sonnet-4-6)
   --worker-model <name>      Claude model for worker sessions (default: claude-sonnet-4-6)
   --max-turns <n>            Per-worker turn limit (default: 50)
+  --dashboard-port <port>    Start read-only web dashboard on this port (default: 3030)
   --help                     Show help and exit`);
 }
 
@@ -33,6 +34,7 @@ export interface Config {
   readonly model: string;
   readonly workerModel: string;
   readonly maxTurns: number;
+  readonly dashboardPort: number;
 }
 
 export function parseConfig(): Config {
@@ -46,6 +48,7 @@ export function parseConfig(): Config {
       model: { type: "string", default: "claude-sonnet-4-6" },
       "worker-model": { type: "string", default: "claude-sonnet-4-6" },
       "max-turns": { type: "string", default: "50" },
+      "dashboard-port": { type: "string", default: "3030" },
       help: { type: "boolean", default: false },
     },
     strict: true,
@@ -63,17 +66,36 @@ export function parseConfig(): Config {
     process.exit(1);
   }
 
+  const pollInterval = parseInt(flags["poll-interval"]!, 10);
+  if (isNaN(pollInterval) || pollInterval <= 0) {
+    console.error("Fatal: --poll-interval must be a positive number");
+    process.exit(1);
+  }
+
+  const maxTurns = parseInt(flags["max-turns"]!, 10);
+  if (isNaN(maxTurns) || maxTurns <= 0) {
+    console.error("Fatal: --max-turns must be a positive number");
+    process.exit(1);
+  }
+
+  const dashboardPort = parseInt(flags["dashboard-port"]!, 10);
+  if (isNaN(dashboardPort) || dashboardPort <= 0) {
+    console.error("Fatal: --dashboard-port must be a positive number");
+    process.exit(1);
+  }
+
   return {
     inbox: flags.inbox,
     allowedDomains: flags["allowed-domains"]
       .split(",")
       .map((d) => d.trim().toLowerCase()),
     workDir: flags["work-dir"],
-    pollInterval: parseInt(flags["poll-interval"] ?? "300", 10) * 1000,
+    pollInterval: pollInterval * 1000,
     dbPath: flags.db ?? `${flags["work-dir"]}/dispatch.db`,
-    model: flags.model ?? "claude-sonnet-4-6",
-    workerModel: flags["worker-model"] ?? "claude-sonnet-4-6",
-    maxTurns: parseInt(flags["max-turns"] ?? "50", 10),
+    model: flags.model!,
+    workerModel: flags["worker-model"]!,
+    maxTurns,
+    dashboardPort,
   } as const;
 }
 

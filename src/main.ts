@@ -1,9 +1,11 @@
-import { execSync } from "node:child_process";
-import { checkWorkerCompletion } from "./completion.js";
-import { AGENTMAIL_API_KEY, parseConfig } from "./config.js";
+import { parseConfig, AGENTMAIL_API_KEY } from "./config.js";
 import { initDatabase } from "./db.js";
 import { createMailClient, pollInbox } from "./mail.js";
-import { createOrchestratorTools, handleMessage } from "./orchestrator.js";
+import { createOrchestratorTools } from "./tools.js";
+import { handleMessage } from "./orchestrator.js";
+import { checkWorkerCompletion } from "./completion.js";
+import { validateEnvironment } from "./startup.js";
+import { startDashboard } from "./dashboard.js";
 
 const config = parseConfig();
 
@@ -18,56 +20,46 @@ async function main(): Promise<void> {
   const db = initDatabase(config.dbPath);
   const mail = createMailClient(AGENTMAIL_API_KEY);
 
-  // Validate that required CLI tools are available
-  try {
-    execSync("tmux -V", { stdio: "pipe" });
-  } catch {
-    console.error("Fatal: tmux is not installed");
-    process.exit(1);
-  }
-  try {
-    execSync("sqlite3 --version", { stdio: "pipe" });
-  } catch {
-    console.error("Fatal: sqlite3 CLI is not installed");
-    process.exit(1);
-  }
+  validateEnvironment();
 
-  // Validate Claude Code CLI is installed and authenticated
-  try {
-    execSync("claude --version", { stdio: "pipe" });
-  } catch {
-    console.error(
-      "Fatal: claude CLI is not installed (npm install -g @anthropic-ai/claude-code)",
-    );
-    process.exit(1);
-  }
-  try {
-    execSync('claude -p "say ok" --output-format json --max-turns 1', {
-      stdio: "pipe",
-      timeout: 30_000,
-    });
-  } catch {
-    console.error(
-      "Fatal: Claude authentication failed.\n" +
-        "  Either run `claude auth login` on this host,\n" +
-        "  or set CLAUDE_CODE_OAUTH_TOKEN.\n" +
-        "  Do NOT set ANTHROPIC_API_KEY — it overrides Max plan billing.",
-    );
-    process.exit(1);
-  }
+  startDashboard(config.dashboardPort, db);
+  console.log(`  Dashboard: http://localhost:${config.dashboardPort}`);
 
   const orchestratorTools = createOrchestratorTools(config, db, mail);
 
+  process.on("SIGINT", () => {
+    console.log("Shutting down...");
+    db.close();
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => {
+    console.log("Shutting down...");
+    db.close();
+    process.exit(0);
+  });
+
   console.log("Dispatch running. Polling...");
 
+  let consecutiveErrors = 0;
   while (true) {
     try {
       await pollInbox(mail, config, db, (thread, message) =>
         handleMessage(thread, message, config, db, mail, orchestratorTools),
       );
       await checkWorkerCompletion(db, mail, config);
+      consecutiveErrors = 0;
     } catch (err) {
+      consecutiveErrors++;
       console.error("Poll cycle error:", err);
+      if (consecutiveErrors > 1) {
+        const backoff = Math.min(
+          config.pollInterval * 2 ** (consecutiveErrors - 1),
+          300_000,
+        );
+        console.error(`Backing off for ${backoff / 1000}s after ${consecutiveErrors} consecutive errors`);
+        await Bun.sleep(backoff);
+        continue;
+      }
     }
     await Bun.sleep(config.pollInterval);
   }
