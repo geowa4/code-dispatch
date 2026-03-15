@@ -85,17 +85,28 @@ export function createOrchestratorTools(
   const createWorkerTool = tool(
     "create_worker",
     "Create a new tmux window with a Claude Code worker for a sub-task. " +
-      "Returns the window name and worktree path.",
+      "Each worker runs in its own tmux window within the thread's session. " +
+      "Use multiple workers when a task has clearly separable sub-parts; " +
+      "use one for a single coherent task. " +
+      "Returns the window name, worktree path, and progress file path. " +
+      "The worker prompt MUST include an instruction to write progress " +
+      "updates to the returned progress file path.",
     {
       thread_id: z
         .string()
         .describe("The email thread ID this worker belongs to"),
       task_summary: z
         .string()
-        .describe("Short (3-5 word) name for the tmux window"),
+        .describe(
+          "Short (2-4 word, kebab-case) name for the tmux window, e.g. 'fix-auth-bug'",
+        ),
       prompt: z
         .string()
-        .describe("Full prompt to pass to claude -p in this window"),
+        .describe(
+          "Full self-contained prompt to pass to claude -p in this window. " +
+            "Include all relevant context from the email thread — the worker " +
+            "has no access to the conversation history.",
+        ),
       repo_path: z
         .string()
         .describe("Path to the git repo under work-dir"),
@@ -113,7 +124,10 @@ export function createOrchestratorTools(
   const getStatusTool = tool(
     "get_all_status",
     "Get the current status of all active worker sessions across all threads. " +
-      "Reads each worker's progress file and tmux state.",
+      "Reads each worker's progress file and tmux state. " +
+      "Use this for broad status requests (e.g. from a new thread with no workers, " +
+      "or when the user explicitly asks about all work). " +
+      "Prefer get_thread_status when the request is about a specific thread.",
     {},
     async () => {
       const status = await getAllStatusImpl(db);
@@ -126,7 +140,8 @@ export function createOrchestratorTools(
   const getThreadStatusTool = tool(
     "get_thread_status",
     "Get the current status of all workers in a specific thread. " +
-      "Use this when the user asks for a status update within an existing task thread.",
+      "Use this when the user asks for a status update within an existing task thread. " +
+      "Prefer this over get_all_status when the request is scoped to one thread.",
     {
       thread_id: z
         .string()
