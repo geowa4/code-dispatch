@@ -5,6 +5,7 @@ import { createOrchestratorTools } from "./tools.js";
 import { handleMessage } from "./orchestrator.js";
 import { checkWorkerCompletion } from "./completion.js";
 import { validateEnvironment } from "./startup.js";
+import { startDashboard } from "./dashboard.js";
 
 const config = parseConfig();
 
@@ -20,6 +21,9 @@ async function main(): Promise<void> {
   const mail = createMailClient(AGENTMAIL_API_KEY);
 
   validateEnvironment();
+
+  startDashboard(config.dashboardPort, db);
+  console.log(`  Dashboard: http://localhost:${config.dashboardPort}`);
 
   const orchestratorTools = createOrchestratorTools(config, db, mail);
 
