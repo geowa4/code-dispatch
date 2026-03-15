@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { listRepos } from "./worktree.js";
+import { listRepos, resolveRepoPath } from "./worktree.js";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -33,5 +33,24 @@ describe("listRepos", () => {
   test("returns empty array for non-existent directory", () => {
     const repos = listRepos("/nonexistent/path/xyz");
     expect(repos).toEqual([]);
+  });
+});
+
+describe("resolveRepoPath", () => {
+  test("resolves valid relative path within work dir", () => {
+    const result = resolveRepoPath("/home/work", "my-repo");
+    expect(result).toBe("/home/work/my-repo");
+  });
+
+  test("rejects path traversal escaping work dir", () => {
+    expect(() => resolveRepoPath("/home/work", "../../etc")).toThrow(
+      "repo_path escapes work directory",
+    );
+  });
+
+  test("rejects absolute path outside work dir", () => {
+    expect(() => resolveRepoPath("/home/work", "/etc/passwd")).toThrow(
+      "repo_path escapes work directory",
+    );
   });
 });

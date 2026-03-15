@@ -22,12 +22,6 @@ export class TmuxController {
     await $`tmux send-keys -t ${target} ${command} Enter`.quiet();
   }
 
-  async capturePane(windowName: string): Promise<string> {
-    const target = `=${this.session}:=${windowName}`;
-    const result = await $`tmux capture-pane -t ${target} -p -J -S -`.text();
-    return result;
-  }
-
   async getCurrentCommand(windowName: string): Promise<string> {
     const target = `=${this.session}:=${windowName}`;
     const result =
