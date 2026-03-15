@@ -48,7 +48,11 @@ Rules:
   Each worker runs in its own tmux window within the thread's session.
   If the task has clearly separable sub-parts, use multiple windows.
   If it's a single coherent task, use one window.
-- For status requests: use get_all_status, then send_reply with a summary.
+- For status requests about THIS thread's tasks: use get_thread_status with the
+  current thread ID, then send_reply with a summary of that thread's workers.
+- For status requests about ALL work (e.g. from a new thread with no workers,
+  or when the user explicitly asks about everything): use get_all_status, then
+  send_reply with a summary.
 - For cancellations: note them but do not kill running workers (the operator
   can do that manually). Update the thread status via query_db is read-only,
   so just acknowledge.

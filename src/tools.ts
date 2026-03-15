@@ -6,12 +6,46 @@ import { z } from "zod";
 import type { Database } from "bun:sqlite";
 import type { Config } from "./config.js";
 import type { AgentMailClient } from "agentmail";
-import type { ThreadRow } from "./db.js";
+import type { ThreadRow, WindowRow } from "./db.js";
 import { listRepos } from "./worktree.js";
 import { readProgress } from "./progress.js";
 import { replyToThread, getLastMessageId } from "./mail.js";
 import { TmuxController } from "./tmux.js";
 import { createWorkerImpl } from "./worker.js";
+
+async function buildThreadReport(db: Database, thread: ThreadRow) {
+  const windows = db
+    .query("SELECT * FROM windows WHERE thread_id = ?")
+    .all(thread.thread_id) as WindowRow[];
+
+  const windowReports = [];
+  for (const win of windows) {
+    const progress = await readProgress(win.progress_file);
+    const tmux = new TmuxController(thread.session_name);
+    let paneState = "unknown";
+    try {
+      paneState = (await tmux.isIdle(win.window_name)) ? "idle" : "busy";
+    } catch {
+      /* session may have been killed externally */
+    }
+
+    windowReports.push({
+      window: win.window_name,
+      task: win.task_summary,
+      db_status: win.status,
+      pane_state: paneState,
+      progress: progress ?? { status: "no progress file yet" },
+    });
+  }
+
+  return {
+    thread_id: thread.thread_id,
+    subject: thread.subject,
+    session: thread.session_name,
+    status: thread.status,
+    windows: windowReports,
+  };
+}
 
 async function getAllStatusImpl(db: Database): Promise<object> {
   const activeThreads = db
@@ -19,47 +53,26 @@ async function getAllStatusImpl(db: Database): Promise<object> {
     .all() as ThreadRow[];
 
   const report = [];
-
   for (const thread of activeThreads) {
-    const windows = db
-      .query("SELECT * FROM windows WHERE thread_id = ?")
-      .all(thread.thread_id) as Array<{
-      window_name: string;
-      task_summary: string;
-      status: string;
-      progress_file: string;
-    }>;
-
-    const windowReports = [];
-    for (const win of windows) {
-      const progress = await readProgress(win.progress_file);
-      const tmux = new TmuxController(thread.session_name);
-      let paneState = "unknown";
-      try {
-        paneState = (await tmux.isIdle(win.window_name)) ? "idle" : "busy";
-      } catch {
-        /* session may have been killed externally */
-      }
-
-      windowReports.push({
-        window: win.window_name,
-        task: win.task_summary,
-        db_status: win.status,
-        pane_state: paneState,
-        progress: progress ?? { status: "no progress file yet" },
-      });
-    }
-
-    report.push({
-      thread_id: thread.thread_id,
-      subject: thread.subject,
-      session: thread.session_name,
-      status: thread.status,
-      windows: windowReports,
-    });
+    report.push(await buildThreadReport(db, thread));
   }
 
   return { active_threads: report.length, threads: report };
+}
+
+async function getThreadStatusImpl(
+  db: Database,
+  threadId: string,
+): Promise<object> {
+  const thread = db
+    .query("SELECT * FROM threads WHERE thread_id = ?")
+    .get(threadId) as ThreadRow | null;
+
+  if (!thread) {
+    return { error: "Thread not found", thread_id: threadId };
+  }
+
+  return await buildThreadReport(db, thread);
 }
 
 const MAX_QUERY_ROWS = 1000;
@@ -104,6 +117,23 @@ export function createOrchestratorTools(
     {},
     async () => {
       const status = await getAllStatusImpl(db);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
+      };
+    },
+  );
+
+  const getThreadStatusTool = tool(
+    "get_thread_status",
+    "Get the current status of all workers in a specific thread. " +
+      "Use this when the user asks for a status update within an existing task thread.",
+    {
+      thread_id: z
+        .string()
+        .describe("The email thread ID to get status for"),
+    },
+    async (args) => {
+      const status = await getThreadStatusImpl(db, args.thread_id);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
       };
@@ -196,6 +226,7 @@ export function createOrchestratorTools(
     tools: [
       createWorkerTool,
       getStatusTool,
+      getThreadStatusTool,
       sendReplyTool,
       listReposTool,
       queryDbTool,
