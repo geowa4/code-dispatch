@@ -217,6 +217,132 @@ describe("checkWorkerCompletion", () => {
     expect(win.status).toBe("error");
   });
 
+  test("still marks window done even when replyToThread fails", async () => {
+    const { client, mocks } = createMockMailClient();
+    mocks.reply.mockRejectedValueOnce(new Error("mail API down"));
+
+    const { factory } = createMockTmux(true);
+    const progressFile = writeProgress("done-noreply.json", {
+      status: "done",
+      percent_complete: 100,
+      current_step: "done",
+      summary: "All tasks completed",
+      steps_completed: ["step 1"],
+      errors: [],
+      updated_at: new Date().toISOString(),
+    });
+    seedRunningWorker({ progressFile });
+
+    await checkWorkerCompletion(db, client, config, factory);
+
+    // Window should still be marked done despite reply failure
+    const win = db
+      .query("SELECT status, last_reply_id FROM windows WHERE thread_id = ?")
+      .get("t1") as { status: string; last_reply_id: string | null };
+    expect(win.status).toBe("done");
+    expect(win.last_reply_id).toBeNull();
+
+    // Thread should also be marked done
+    const thread = db
+      .query("SELECT status FROM threads WHERE thread_id = ?")
+      .get("t1") as { status: string };
+    expect(thread.status).toBe("done");
+  });
+
+  test("detects stale thread — active with all windows done", async () => {
+    const { client } = createMockMailClient();
+    const { factory } = createMockTmux(true);
+
+    // Create a thread that is active but has only completed windows
+    insertTestThread(db, {
+      thread_id: "stale-1",
+      session_name: "session-stale",
+      status: "active",
+    });
+    insertTestWindow(db, "stale-1", {
+      window_name: "done-window",
+      task_summary: "Already done",
+      status: "done",
+    });
+
+    await checkWorkerCompletion(db, client, config, factory);
+
+    const thread = db
+      .query("SELECT status FROM threads WHERE thread_id = ?")
+      .get("stale-1") as { status: string };
+    expect(thread.status).toBe("done");
+  });
+
+  test("detects stale thread with errors — marks as error", async () => {
+    const { client } = createMockMailClient();
+    const { factory } = createMockTmux(true);
+
+    insertTestThread(db, {
+      thread_id: "stale-2",
+      session_name: "session-stale2",
+      status: "active",
+    });
+    insertTestWindow(db, "stale-2", {
+      window_name: "err-window",
+      task_summary: "Failed task",
+      status: "error",
+    });
+    insertTestWindow(db, "stale-2", {
+      window_name: "done-window",
+      task_summary: "Done task",
+      status: "done",
+    });
+
+    await checkWorkerCompletion(db, client, config, factory);
+
+    const thread = db
+      .query("SELECT status FROM threads WHERE thread_id = ?")
+      .get("stale-2") as { status: string };
+    expect(thread.status).toBe("error");
+  });
+
+  test("thread with mixed done/error windows is marked error", async () => {
+    const { client } = createMockMailClient();
+    const progressFile = writeProgress("done-mixed.json", {
+      status: "done",
+      percent_complete: 100,
+      current_step: "done",
+      summary: "Done",
+      steps_completed: ["done"],
+      errors: [],
+      updated_at: new Date().toISOString(),
+    });
+
+    // Seed thread with one running (about to complete) and one already errored
+    insertTestThread(db, {
+      thread_id: "t1",
+      session_name: "session-1",
+      status: "active",
+    });
+    insertTestWindow(db, "t1", {
+      window_name: "window-ok",
+      task_summary: "Good task",
+      status: "running",
+      progress_file: progressFile,
+    });
+    insertTestWindow(db, "t1", {
+      window_name: "window-bad",
+      task_summary: "Bad task",
+      status: "error",
+    });
+    insertTestMessage(db, "msg-1", "t1");
+
+    const { factory } = createMockTmux(true);
+
+    await checkWorkerCompletion(db, client, config, factory);
+
+    // Thread should be error because one window errored
+    const thread = db
+      .query("SELECT status FROM threads WHERE thread_id = ?")
+      .get("t1") as { status: string };
+    expect(thread.status).toBe("error");
+  });
+
   test("does not mark thread done if other windows still running", async () => {
     const { client } = createMockMailClient();
     const progressFile = writeProgress("done3.json", {

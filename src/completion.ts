@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { AgentMailClient } from "agentmail";
 import type { Config } from "./config.js";
 import type { WindowRow } from "./db.js";
+import { countWindowsByStatus } from "./db.js";
 import { TmuxController } from "./tmux.js";
 import { readProgress } from "./progress.js";
 import { replyToThread, getLastMessageId } from "./mail.js";
@@ -72,37 +73,52 @@ export async function checkWorkerCompletion(
           `Errors:\n${progress.errors.join("\n")}\n\n` +
           `Progress before failure:\n${progress.summary}`;
 
-    const replyId = await replyToThread(
-      mail,
-      config.inbox,
-      win.thread_id,
-      lastMsgId,
-      replyBody,
-    );
+    let replyId: string | null = null;
+    try {
+      replyId = await replyToThread(
+        mail,
+        config.inbox,
+        win.thread_id,
+        lastMsgId,
+        replyBody,
+      );
+    } catch (err) {
+      console.error(`Failed to send completion reply for window ${win.window_name}:`, err);
+    }
 
     db.run(
       "UPDATE windows SET status = ?, finished_at = datetime('now'), last_reply_id = ? WHERE window_id = ?",
       [finalStatus, replyId, win.window_id],
     );
 
-    const stillRunning = db
-      .query(
-        "SELECT COUNT(*) as cnt FROM windows WHERE thread_id = ? AND status = 'running'",
-      )
-      .get(win.thread_id) as { cnt: number };
-
-    if (stillRunning.cnt === 0) {
-      const hasErrors = db
-        .query(
-          "SELECT COUNT(*) as cnt FROM windows WHERE thread_id = ? AND status = 'error'",
-        )
-        .get(win.thread_id) as { cnt: number };
-
-      const threadStatus = hasErrors.cnt > 0 ? "error" : "done";
+    if (countWindowsByStatus(db, win.thread_id, "running") === 0) {
+      const hasErrors = countWindowsByStatus(db, win.thread_id, "error") > 0;
+      const threadStatus = hasErrors ? "error" : "done";
       db.run(
         "UPDATE threads SET status = ?, updated_at = datetime('now') WHERE thread_id = ?",
         [threadStatus, win.thread_id],
       );
     }
+  }
+
+  // Safety net: detect stale threads that are "active" but have no running windows
+  const staleThreads = db
+    .query(
+      `SELECT t.thread_id, t.session_name,
+        (SELECT COUNT(*) FROM windows w WHERE w.thread_id = t.thread_id AND w.status = 'error') as error_count
+       FROM threads t
+       WHERE t.status = 'active'
+         AND (SELECT COUNT(*) FROM windows w WHERE w.thread_id = t.thread_id) > 0
+         AND (SELECT COUNT(*) FROM windows w WHERE w.thread_id = t.thread_id AND w.status = 'running') = 0`,
+    )
+    .all() as Array<{ thread_id: string; session_name: string; error_count: number }>;
+
+  for (const stale of staleThreads) {
+    const status = stale.error_count > 0 ? "error" : "done";
+    console.error(`Stale thread ${stale.thread_id} detected — marking as ${status}`);
+    db.run(
+      "UPDATE threads SET status = ?, updated_at = datetime('now') WHERE thread_id = ?",
+      [status, stale.thread_id],
+    );
   }
 }
