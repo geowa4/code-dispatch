@@ -7,7 +7,7 @@ import type { Database } from "bun:sqlite";
 import type { Config } from "./config.js";
 import type { AgentMailClient } from "agentmail";
 import type { ThreadRow, WindowRow } from "./db.js";
-import { listRepos } from "./worktree.js";
+import { listRepos, removeWorktree, findMainWorktree } from "./worktree.js";
 import { readProgress } from "./progress.js";
 import { replyToThread, getLastMessageId } from "./mail.js";
 import { TmuxController } from "./tmux.js";
@@ -75,6 +75,81 @@ async function getThreadStatusImpl(
   return await buildThreadReport(db, thread);
 }
 
+async function cancelThreadImpl(
+  db: Database,
+  threadId: string,
+): Promise<object> {
+  const thread = db
+    .query("SELECT * FROM threads WHERE thread_id = ?")
+    .get(threadId) as ThreadRow | null;
+
+  if (!thread) {
+    return { error: "Thread not found", thread_id: threadId };
+  }
+
+  const windows = db
+    .query("SELECT * FROM windows WHERE thread_id = ? AND status = 'running'")
+    .all(threadId) as WindowRow[];
+
+  const results: Array<{ window: string; tmux: string; worktree: string }> = [];
+
+  for (const win of windows) {
+    let tmuxStatus = "skipped";
+    let worktreeStatus = "skipped";
+
+    const tmux = new TmuxController(thread.session_name);
+    try {
+      await tmux.killWindow(win.window_name);
+      tmuxStatus = "killed";
+    } catch {
+      tmuxStatus = "already gone";
+    }
+
+    try {
+      const repoPath = findMainWorktree(win.worktree_path);
+      removeWorktree(repoPath, win.worktree_path);
+      worktreeStatus = "removed";
+    } catch {
+      worktreeStatus = "already gone";
+    }
+
+    db.run(
+      "UPDATE windows SET status = 'cancelled', finished_at = datetime('now') WHERE window_id = ?",
+      [win.window_id],
+    );
+
+    results.push({
+      window: win.window_name,
+      tmux: tmuxStatus,
+      worktree: worktreeStatus,
+    });
+  }
+
+  // If no running windows remain, kill the tmux session entirely
+  const remaining = db
+    .query("SELECT COUNT(*) as cnt FROM windows WHERE thread_id = ? AND status = 'running'")
+    .get(threadId) as { cnt: number };
+
+  if (remaining.cnt === 0) {
+    try {
+      const tmux = new TmuxController(thread.session_name);
+      await tmux.killSession();
+    } catch {
+      /* session may already be gone */
+    }
+    db.run(
+      "UPDATE threads SET status = 'done', updated_at = datetime('now') WHERE thread_id = ?",
+      [threadId],
+    );
+  }
+
+  return {
+    thread_id: threadId,
+    cancelled_windows: results.length,
+    details: results,
+  };
+}
+
 const MAX_QUERY_ROWS = 1000;
 
 export function createOrchestratorTools(
@@ -89,8 +164,7 @@ export function createOrchestratorTools(
       "Use multiple workers when a task has clearly separable sub-parts; " +
       "use one for a single coherent task. " +
       "Returns the window name, worktree path, and progress file path. " +
-      "The worker prompt MUST include an instruction to write progress " +
-      "updates to the returned progress file path.",
+      "Progress file instructions are appended to the prompt automatically.",
     {
       thread_id: z
         .string()
@@ -151,6 +225,24 @@ export function createOrchestratorTools(
       const status = await getThreadStatusImpl(db, args.thread_id);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
+      };
+    },
+  );
+
+  const cancelThreadTool = tool(
+    "cancel_thread",
+    "Cancel all running workers in a thread. Kills tmux windows, removes git " +
+      "worktrees, and marks windows as cancelled. If no running windows remain, " +
+      "kills the tmux session and marks the thread as done.",
+    {
+      thread_id: z
+        .string()
+        .describe("The email thread ID to cancel"),
+    },
+    async (args) => {
+      const result = await cancelThreadImpl(db, args.thread_id);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
       };
     },
   );
@@ -242,6 +334,7 @@ export function createOrchestratorTools(
       createWorkerTool,
       getStatusTool,
       getThreadStatusTool,
+      cancelThreadTool,
       sendReplyTool,
       listReposTool,
       queryDbTool,

@@ -44,9 +44,8 @@ Current state:
 - ${threadContext}
 
 Rules:
-- For cancellations: acknowledge the request but do not kill running workers
-  (the operator handles that manually). Note that query_db is read-only.
-- Always send_reply after gathering status so the user gets an email response.`;
+- Always send_reply after gathering status or completing an action so the user
+  gets an email response.`;
 
   const userMessage = `From: ${message.from}
 Subject: ${thread.subject}
