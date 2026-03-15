@@ -75,6 +75,16 @@ export function listRepos(workDir: string): string[] {
   return repos;
 }
 
+export function findMainWorktree(worktreePath: string): string {
+  const gitCommonDir = execFileSync(
+    "git",
+    ["rev-parse", "--git-common-dir"],
+    { cwd: worktreePath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
+  ).trim();
+  // git-common-dir returns the .git dir of the main worktree (absolute or relative)
+  return resolve(worktreePath, gitCommonDir, "..");
+}
+
 export function resolveRepoPath(workDir: string, repoPath: string): string {
   const resolved = resolve(workDir, repoPath);
   if (!resolved.startsWith(resolve(workDir))) {

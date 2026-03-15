@@ -44,19 +44,8 @@ Current state:
 - ${threadContext}
 
 Rules:
-- For new coding tasks: create one or more workers using create_worker.
-  Each worker runs in its own tmux window within the thread's session.
-  If the task has clearly separable sub-parts, use multiple windows.
-  If it's a single coherent task, use one window.
-- For status requests: use get_all_status, then send_reply with a summary.
-- For cancellations: note them but do not kill running workers (the operator
-  can do that manually). Update the thread status via query_db is read-only,
-  so just acknowledge.
-- Window names must be short (2-4 words, kebab-case) and relevant.
-- Each worker prompt MUST include an instruction to write progress updates
-  to the progress file path you'll receive back from create_worker.
-- Worker prompts should be self-contained — include all relevant context
-  from the email thread.`;
+- Always send_reply after gathering status or completing an action so the user
+  gets an email response.`;
 
   const userMessage = `From: ${message.from}
 Subject: ${thread.subject}

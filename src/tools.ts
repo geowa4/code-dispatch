@@ -6,12 +6,46 @@ import { z } from "zod";
 import type { Database } from "bun:sqlite";
 import type { Config } from "./config.js";
 import type { AgentMailClient } from "agentmail";
-import type { ThreadRow } from "./db.js";
-import { listRepos } from "./worktree.js";
+import type { ThreadRow, WindowRow } from "./db.js";
+import { listRepos, removeWorktree, findMainWorktree } from "./worktree.js";
 import { readProgress } from "./progress.js";
 import { replyToThread, getLastMessageId } from "./mail.js";
 import { TmuxController } from "./tmux.js";
 import { createWorkerImpl } from "./worker.js";
+
+async function buildThreadReport(db: Database, thread: ThreadRow) {
+  const windows = db
+    .query("SELECT * FROM windows WHERE thread_id = ?")
+    .all(thread.thread_id) as WindowRow[];
+
+  const windowReports = [];
+  for (const win of windows) {
+    const progress = await readProgress(win.progress_file);
+    const tmux = new TmuxController(thread.session_name);
+    let paneState = "unknown";
+    try {
+      paneState = (await tmux.isIdle(win.window_name)) ? "idle" : "busy";
+    } catch {
+      /* session may have been killed externally */
+    }
+
+    windowReports.push({
+      window: win.window_name,
+      task: win.task_summary,
+      db_status: win.status,
+      pane_state: paneState,
+      progress: progress ?? { status: "no progress file yet" },
+    });
+  }
+
+  return {
+    thread_id: thread.thread_id,
+    subject: thread.subject,
+    session: thread.session_name,
+    status: thread.status,
+    windows: windowReports,
+  };
+}
 
 async function getAllStatusImpl(db: Database): Promise<object> {
   const activeThreads = db
@@ -19,47 +53,111 @@ async function getAllStatusImpl(db: Database): Promise<object> {
     .all() as ThreadRow[];
 
   const report = [];
-
   for (const thread of activeThreads) {
-    const windows = db
-      .query("SELECT * FROM windows WHERE thread_id = ?")
-      .all(thread.thread_id) as Array<{
-      window_name: string;
-      task_summary: string;
-      status: string;
-      progress_file: string;
-    }>;
-
-    const windowReports = [];
-    for (const win of windows) {
-      const progress = await readProgress(win.progress_file);
-      const tmux = new TmuxController(thread.session_name);
-      let paneState = "unknown";
-      try {
-        paneState = (await tmux.isIdle(win.window_name)) ? "idle" : "busy";
-      } catch {
-        /* session may have been killed externally */
-      }
-
-      windowReports.push({
-        window: win.window_name,
-        task: win.task_summary,
-        db_status: win.status,
-        pane_state: paneState,
-        progress: progress ?? { status: "no progress file yet" },
-      });
-    }
-
-    report.push({
-      thread_id: thread.thread_id,
-      subject: thread.subject,
-      session: thread.session_name,
-      status: thread.status,
-      windows: windowReports,
-    });
+    report.push(await buildThreadReport(db, thread));
   }
 
   return { active_threads: report.length, threads: report };
+}
+
+async function getThreadStatusImpl(
+  db: Database,
+  threadId: string,
+): Promise<object> {
+  const thread = db
+    .query("SELECT * FROM threads WHERE thread_id = ?")
+    .get(threadId) as ThreadRow | null;
+
+  if (!thread) {
+    return { error: "Thread not found", thread_id: threadId };
+  }
+
+  return await buildThreadReport(db, thread);
+}
+
+export async function cancelThreadImpl(
+  db: Database,
+  threadId: string,
+  tmuxFactory: (session: string) => TmuxController = (s) => new TmuxController(s),
+  worktreeRemover: (worktreePath: string) => void = (wp) => {
+    const repoPath = findMainWorktree(wp);
+    removeWorktree(repoPath, wp);
+  },
+): Promise<object> {
+  const thread = db
+    .query("SELECT * FROM threads WHERE thread_id = ?")
+    .get(threadId) as ThreadRow | null;
+
+  if (!thread) {
+    return { error: "Thread not found", thread_id: threadId };
+  }
+
+  const windows = db
+    .query("SELECT * FROM windows WHERE thread_id = ? AND status = 'running'")
+    .all(threadId) as WindowRow[];
+
+  const results: Array<{ window: string; tmux: string; worktree: string; cancelled: boolean }> = [];
+
+  for (const win of windows) {
+    let tmuxStatus = "skipped";
+    let worktreeStatus = "skipped";
+    let killed = false;
+
+    const tmux = tmuxFactory(thread.session_name);
+    try {
+      await tmux.killWindow(win.window_name);
+      tmuxStatus = "killed";
+      killed = true;
+    } catch {
+      tmuxStatus = "failed";
+    }
+
+    if (killed) {
+      try {
+        worktreeRemover(win.worktree_path);
+        worktreeStatus = "removed";
+      } catch {
+        worktreeStatus = "failed";
+      }
+
+      db.run(
+        "UPDATE windows SET status = 'cancelled', finished_at = datetime('now') WHERE window_id = ?",
+        [win.window_id],
+      );
+    }
+
+    results.push({
+      window: win.window_name,
+      tmux: tmuxStatus,
+      worktree: worktreeStatus,
+      cancelled: killed,
+    });
+  }
+
+  // Only kill session and mark thread done if no running windows remain
+  const remaining = db
+    .query("SELECT COUNT(*) as cnt FROM windows WHERE thread_id = ? AND status = 'running'")
+    .get(threadId) as { cnt: number };
+
+  if (remaining.cnt === 0) {
+    try {
+      const tmux = tmuxFactory(thread.session_name);
+      await tmux.killSession();
+    } catch {
+      /* session may already be gone */
+    }
+    db.run(
+      "UPDATE threads SET status = 'done', updated_at = datetime('now') WHERE thread_id = ?",
+      [threadId],
+    );
+  }
+
+  return {
+    thread_id: threadId,
+    cancelled_windows: results.filter((r) => r.cancelled).length,
+    failed_windows: results.filter((r) => !r.cancelled).length,
+    details: results,
+  };
 }
 
 const MAX_QUERY_ROWS = 1000;
@@ -72,17 +170,27 @@ export function createOrchestratorTools(
   const createWorkerTool = tool(
     "create_worker",
     "Create a new tmux window with a Claude Code worker for a sub-task. " +
-      "Returns the window name and worktree path.",
+      "Each worker runs in its own tmux window within the thread's session. " +
+      "Use multiple workers when a task has clearly separable sub-parts; " +
+      "use one for a single coherent task. " +
+      "Returns the window name, worktree path, and progress file path. " +
+      "Progress file instructions are appended to the prompt automatically.",
     {
       thread_id: z
         .string()
         .describe("The email thread ID this worker belongs to"),
       task_summary: z
         .string()
-        .describe("Short (3-5 word) name for the tmux window"),
+        .describe(
+          "Short (2-4 word, kebab-case) name for the tmux window, e.g. 'fix-auth-bug'",
+        ),
       prompt: z
         .string()
-        .describe("Full prompt to pass to claude -p in this window"),
+        .describe(
+          "Full self-contained prompt to pass to claude -p in this window. " +
+            "Include all relevant context from the email thread — the worker " +
+            "has no access to the conversation history.",
+        ),
       repo_path: z
         .string()
         .describe("Path to the git repo under work-dir"),
@@ -100,12 +208,51 @@ export function createOrchestratorTools(
   const getStatusTool = tool(
     "get_all_status",
     "Get the current status of all active worker sessions across all threads. " +
-      "Reads each worker's progress file and tmux state.",
+      "Reads each worker's progress file and tmux state. " +
+      "Use this for broad status requests (e.g. from a new thread with no workers, " +
+      "or when the user explicitly asks about all work). " +
+      "Prefer get_thread_status when the request is about a specific thread.",
     {},
     async () => {
       const status = await getAllStatusImpl(db);
       return {
         content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
+      };
+    },
+  );
+
+  const getThreadStatusTool = tool(
+    "get_thread_status",
+    "Get the current status of all workers in a specific thread. " +
+      "Use this when the user asks for a status update within an existing task thread. " +
+      "Prefer this over get_all_status when the request is scoped to one thread.",
+    {
+      thread_id: z
+        .string()
+        .describe("The email thread ID to get status for"),
+    },
+    async (args) => {
+      const status = await getThreadStatusImpl(db, args.thread_id);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
+      };
+    },
+  );
+
+  const cancelThreadTool = tool(
+    "cancel_thread",
+    "Cancel all running workers in a thread. Kills tmux windows, removes git " +
+      "worktrees, and marks windows as cancelled. If no running windows remain, " +
+      "kills the tmux session and marks the thread as done.",
+    {
+      thread_id: z
+        .string()
+        .describe("The email thread ID to cancel"),
+    },
+    async (args) => {
+      const result = await cancelThreadImpl(db, args.thread_id);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
       };
     },
   );
@@ -196,6 +343,8 @@ export function createOrchestratorTools(
     tools: [
       createWorkerTool,
       getStatusTool,
+      getThreadStatusTool,
+      cancelThreadTool,
       sendReplyTool,
       listReposTool,
       queryDbTool,

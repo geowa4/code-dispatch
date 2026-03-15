@@ -33,4 +33,13 @@ export class TmuxController {
     const cmd = await this.getCurrentCommand(windowName);
     return ["bash", "zsh", "sh", "fish"].includes(cmd);
   }
+
+  async killWindow(windowName: string): Promise<void> {
+    const target = `=${this.session}:=${windowName}`;
+    await $`tmux kill-window -t ${target}`.quiet();
+  }
+
+  async killSession(): Promise<void> {
+    await $`tmux kill-session -t ${`=${this.session}`}`.quiet();
+  }
 }
