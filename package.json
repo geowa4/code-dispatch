@@ -7,7 +7,8 @@
     "dev": "bun --watch run src/main.ts",
     "test": "bun test",
     "test:ci": "bun test --coverage-reporter=lcov",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "bun build --compile src/main.ts --outfile dispatch --external @x402/fetch"
   },
   "dependencies": {
     "agentmail": "^0.3.7",
