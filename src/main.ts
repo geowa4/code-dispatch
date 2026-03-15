@@ -22,10 +22,8 @@ async function main(): Promise<void> {
 
   validateEnvironment();
 
-  if (config.dashboardPort !== null) {
-    startDashboard(config.dashboardPort, db);
-    console.log(`  Dashboard: http://localhost:${config.dashboardPort}`);
-  }
+  startDashboard(config.dashboardPort, db);
+  console.log(`  Dashboard: http://localhost:${config.dashboardPort}`);
 
   const orchestratorTools = createOrchestratorTools(config, db, mail);
 
