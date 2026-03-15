@@ -1,12 +1,23 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { join, dirname, basename } from "node:path";
+import { join, dirname, basename, resolve } from "node:path";
+
+const SAFE_REF_PATTERN = /^[a-zA-Z0-9_./-]+$/;
+
+function validateGitRef(ref: string): void {
+  if (!SAFE_REF_PATTERN.test(ref)) {
+    throw new Error(`Invalid git ref: ${ref}`);
+  }
+}
 
 export function createWorktree(
   repoPath: string,
   branchName: string,
   baseBranch: string,
 ): string {
+  validateGitRef(branchName);
+  validateGitRef(baseBranch);
+
   const repoName = basename(repoPath);
   const worktreeRoot = join(dirname(repoPath), ".worktrees");
   mkdirSync(worktreeRoot, { recursive: true });
@@ -19,13 +30,14 @@ export function createWorktree(
     return worktreePath;
   }
 
-  execSync(
-    `git worktree add -b "${branchName}" "${worktreePath}" "${baseBranch}"`,
+  execFileSync(
+    "git",
+    ["worktree", "add", "-b", branchName, worktreePath, baseBranch],
     { cwd: repoPath, stdio: "pipe" },
   );
 
   if (existsSync(join(worktreePath, "package.json"))) {
-    execSync("bun install", { cwd: worktreePath, stdio: "pipe" });
+    execFileSync("bun", ["install"], { cwd: worktreePath, stdio: "pipe" });
   }
 
   return worktreePath;
@@ -35,10 +47,11 @@ export function removeWorktree(
   repoPath: string,
   worktreePath: string,
 ): void {
-  execSync(`git worktree remove "${worktreePath}" --force`, {
-    cwd: repoPath,
-    stdio: "pipe",
-  });
+  execFileSync(
+    "git",
+    ["worktree", "remove", worktreePath, "--force"],
+    { cwd: repoPath, stdio: "pipe" },
+  );
 }
 
 export function listRepos(workDir: string): string[] {
@@ -60,4 +73,12 @@ export function listRepos(workDir: string): string[] {
     // work dir may not exist yet
   }
   return repos;
+}
+
+export function resolveRepoPath(workDir: string, repoPath: string): string {
+  const resolved = resolve(workDir, repoPath);
+  if (!resolved.startsWith(resolve(workDir))) {
+    throw new Error(`repo_path escapes work directory: ${repoPath}`);
+  }
+  return resolved;
 }
