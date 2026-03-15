@@ -1,12 +1,10 @@
+import type { Database } from "bun:sqlite";
 import { mock } from "bun:test";
 import type { AgentMailClient } from "agentmail";
 import type { Config } from "./config.js";
-import type { Database } from "bun:sqlite";
 
 export function createMockMailClient() {
-  const reply = mock(() =>
-    Promise.resolve({ messageId: "mock-reply-id" }),
-  );
+  const reply = mock(() => Promise.resolve({ messageId: "mock-reply-id" }));
   const update = mock(() => Promise.resolve({}));
   const list = mock(() => Promise.resolve({ threads: [] as unknown[] }));
   const get = mock(() =>
@@ -93,7 +91,15 @@ export function insertTestWindow(
   db.run(
     `INSERT INTO windows (thread_id, window_name, worktree_path, branch_name, progress_file, task_summary, status)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [threadId, w.window_name, w.worktree_path, w.branch_name, w.progress_file, w.task_summary, w.status],
+    [
+      threadId,
+      w.window_name,
+      w.worktree_path,
+      w.branch_name,
+      w.progress_file,
+      w.task_summary,
+      w.status,
+    ],
   );
 }
 
@@ -102,8 +108,8 @@ export function insertTestMessage(
   messageId: string,
   threadId: string,
 ) {
-  db.run(
-    "INSERT INTO messages_seen (message_id, thread_id) VALUES (?, ?)",
-    [messageId, threadId],
-  );
+  db.run("INSERT INTO messages_seen (message_id, thread_id) VALUES (?, ?)", [
+    messageId,
+    threadId,
+  ]);
 }

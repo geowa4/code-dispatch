@@ -1,12 +1,12 @@
-import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { getLastMessageId, replyToThread, pollInbox } from "./mail.js";
-import { initDatabase } from "./db.js";
 import type { Database } from "bun:sqlite";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { initDatabase } from "./db.js";
+import { getLastMessageId, pollInbox, replyToThread } from "./mail.js";
 import {
   createMockMailClient,
   createTestConfig,
-  insertTestThread,
   insertTestMessage,
+  insertTestThread,
 } from "./test-utils.js";
 
 describe("getLastMessageId", () => {
@@ -171,9 +171,7 @@ describe("pollInbox", () => {
     mocks.get.mockResolvedValueOnce({
       threadId: "t1",
       subject: "Test",
-      messages: [
-        { messageId: "m1", from: "user@example.com", text: "hello" },
-      ],
+      messages: [{ messageId: "m1", from: "user@example.com", text: "hello" }],
     });
 
     // Pre-insert thread and message as already seen
@@ -195,16 +193,12 @@ describe("pollInbox", () => {
       .mockResolvedValueOnce({
         threadId: "t1",
         subject: "First",
-        messages: [
-          { messageId: "m1", from: "a@example.com", text: "first" },
-        ],
+        messages: [{ messageId: "m1", from: "a@example.com", text: "first" }],
       })
       .mockResolvedValueOnce({
         threadId: "t2",
         subject: "Second",
-        messages: [
-          { messageId: "m2", from: "b@example.com", text: "second" },
-        ],
+        messages: [{ messageId: "m2", from: "b@example.com", text: "second" }],
       });
 
     insertTestThread(db, { thread_id: "t1", session_name: "s1" });
@@ -231,11 +225,13 @@ describe("pollInbox", () => {
 
     insertTestThread(db, { thread_id: "t1" });
 
-    const handleMessage = mock(() => Promise.reject(new Error("handler crash")));
+    const handleMessage = mock(() =>
+      Promise.reject(new Error("handler crash")),
+    );
 
-    await expect(
-      pollInbox(client, config, db, handleMessage),
-    ).rejects.toThrow("handler crash");
+    await expect(pollInbox(client, config, db, handleMessage)).rejects.toThrow(
+      "handler crash",
+    );
 
     // Message should NOT be in messages_seen since handleMessage threw before insert
     const seen = db

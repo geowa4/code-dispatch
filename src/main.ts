@@ -1,11 +1,11 @@
-import { parseConfig, AGENTMAIL_API_KEY } from "./config.js";
+import { checkWorkerCompletion } from "./completion.js";
+import { AGENTMAIL_API_KEY, parseConfig } from "./config.js";
+import { startDashboard } from "./dashboard.js";
 import { initDatabase } from "./db.js";
 import { createMailClient, pollInbox } from "./mail.js";
-import { createOrchestratorTools } from "./tools.js";
 import { handleMessage } from "./orchestrator.js";
-import { checkWorkerCompletion } from "./completion.js";
 import { validateEnvironment } from "./startup.js";
-import { startDashboard } from "./dashboard.js";
+import { createOrchestratorTools } from "./tools.js";
 
 const config = parseConfig();
 
@@ -56,7 +56,9 @@ async function main(): Promise<void> {
           config.pollInterval * 2 ** (consecutiveErrors - 1),
           300_000,
         );
-        console.error(`Backing off for ${backoff / 1000}s after ${consecutiveErrors} consecutive errors`);
+        console.error(
+          `Backing off for ${backoff / 1000}s after ${consecutiveErrors} consecutive errors`,
+        );
         await Bun.sleep(backoff);
         continue;
       }

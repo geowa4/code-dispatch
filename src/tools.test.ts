@@ -1,14 +1,13 @@
-import { describe, test, expect, beforeEach } from "bun:test";
 import type { Database } from "bun:sqlite";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { initDatabase } from "./db.js";
-import { cancelThreadImpl } from "./tools.js";
+import { getLastMessageId, replyToThread } from "./mail.js";
 import {
   createMockMailClient,
   insertTestThread,
   insertTestWindow,
-  insertTestMessage,
 } from "./test-utils.js";
-import { getLastMessageId, replyToThread } from "./mail.js";
+import { cancelThreadImpl } from "./tools.js";
 
 describe("getLastMessageId edge cases", () => {
   let db: Database;
@@ -37,7 +36,10 @@ describe("cancelThreadImpl edge cases", () => {
     const killWindow = () => Promise.resolve();
     const killSession = () => Promise.resolve();
     const factory = (_s: string) =>
-      ({ killWindow, killSession }) as unknown as import("./tmux.js").TmuxController;
+      ({
+        killWindow,
+        killSession,
+      }) as unknown as import("./tmux.js").TmuxController;
     const remover = (_wp: string) => {};
 
     insertTestThread(db, { thread_id: "t1", session_name: "s1" });

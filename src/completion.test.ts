@@ -1,17 +1,17 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { initDatabase } from "./db.js";
-import { checkWorkerCompletion } from "./completion.js";
-import type { TmuxController } from "./tmux.js";
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { checkWorkerCompletion } from "./completion.js";
+import { initDatabase } from "./db.js";
 import {
   createMockMailClient,
   createTestConfig,
+  insertTestMessage,
   insertTestThread,
   insertTestWindow,
-  insertTestMessage,
 } from "./test-utils.js";
+import type { TmuxController } from "./tmux.js";
 
 const tmpDir = join(import.meta.dir, "../.test-tmp-completion");
 
@@ -21,7 +21,7 @@ function createMockTmux(isIdleResult: boolean | Error = true) {
     return Promise.resolve(isIdleResult);
   });
   const factory = (_session: string) =>
-    ({ isIdle } as unknown as TmuxController);
+    ({ isIdle }) as unknown as TmuxController;
   return { factory, isIdle };
 }
 
@@ -38,7 +38,10 @@ describe("checkWorkerCompletion", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  function writeProgress(filename: string, data: Record<string, unknown>): string {
+  function writeProgress(
+    filename: string,
+    data: Record<string, unknown>,
+  ): string {
     const filePath = join(tmpDir, filename);
     writeFileSync(filePath, JSON.stringify(data));
     return filePath;

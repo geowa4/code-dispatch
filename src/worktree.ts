@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { join, dirname, basename, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 const SAFE_REF_PATTERN = /^[a-zA-Z0-9_./-]+$/;
 
@@ -43,15 +43,11 @@ export function createWorktree(
   return worktreePath;
 }
 
-export function removeWorktree(
-  repoPath: string,
-  worktreePath: string,
-): void {
-  execFileSync(
-    "git",
-    ["worktree", "remove", worktreePath, "--force"],
-    { cwd: repoPath, stdio: "pipe" },
-  );
+export function removeWorktree(repoPath: string, worktreePath: string): void {
+  execFileSync("git", ["worktree", "remove", worktreePath, "--force"], {
+    cwd: repoPath,
+    stdio: "pipe",
+  });
 }
 
 export function listRepos(workDir: string): string[] {
@@ -76,11 +72,11 @@ export function listRepos(workDir: string): string[] {
 }
 
 export function findMainWorktree(worktreePath: string): string {
-  const gitCommonDir = execFileSync(
-    "git",
-    ["rev-parse", "--git-common-dir"],
-    { cwd: worktreePath, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
-  ).trim();
+  const gitCommonDir = execFileSync("git", ["rev-parse", "--git-common-dir"], {
+    cwd: worktreePath,
+    encoding: "utf-8",
+    stdio: ["pipe", "pipe", "pipe"],
+  }).trim();
   // git-common-dir returns the .git dir of the main worktree (absolute or relative)
   return resolve(worktreePath, gitCommonDir, "..");
 }

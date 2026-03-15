@@ -1,9 +1,9 @@
-import { describe, test, expect, beforeEach, mock } from "bun:test";
 import type { Database } from "bun:sqlite";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { initDatabase } from "./db.js";
-import { cancelThreadImpl } from "./tools.js";
-import type { TmuxController } from "./tmux.js";
 import { insertTestThread, insertTestWindow } from "./test-utils.js";
+import type { TmuxController } from "./tmux.js";
+import { cancelThreadImpl } from "./tools.js";
 
 function createMockTmux(killWindowResult: "ok" | Error = "ok") {
   const killWindow = mock(() => {
@@ -31,9 +31,17 @@ describe("cancelThreadImpl", () => {
 
   test("returns error for unknown thread", async () => {
     const { factory } = createMockTmux();
-    const result = await cancelThreadImpl(db, "nonexistent", factory, createMockWorktreeRemover());
+    const result = await cancelThreadImpl(
+      db,
+      "nonexistent",
+      factory,
+      createMockWorktreeRemover(),
+    );
 
-    expect(result).toEqual({ error: "Thread not found", thread_id: "nonexistent" });
+    expect(result).toEqual({
+      error: "Thread not found",
+      thread_id: "nonexistent",
+    });
   });
 
   test("cancels running windows — kills tmux, removes worktree, updates DB", async () => {
@@ -47,17 +55,27 @@ describe("cancelThreadImpl", () => {
       status: "running",
     });
 
-    const result = (await cancelThreadImpl(db, "t1", factory, worktreeRemover)) as {
+    const result = (await cancelThreadImpl(
+      db,
+      "t1",
+      factory,
+      worktreeRemover,
+    )) as {
       cancelled_windows: number;
       failed_windows: number;
-      details: Array<{ window: string; tmux: string; worktree: string; cancelled: boolean }>;
+      details: Array<{
+        window: string;
+        tmux: string;
+        worktree: string;
+        cancelled: boolean;
+      }>;
     };
 
     expect(result.cancelled_windows).toBe(1);
     expect(result.failed_windows).toBe(0);
-    expect(result.details[0]!.tmux).toBe("killed");
-    expect(result.details[0]!.worktree).toBe("removed");
-    expect(result.details[0]!.cancelled).toBe(true);
+    expect(result.details[0]?.tmux).toBe("killed");
+    expect(result.details[0]?.worktree).toBe("removed");
+    expect(result.details[0]?.cancelled).toBe(true);
 
     expect(killWindow).toHaveBeenCalledWith("fix-bug");
     expect(worktreeRemover).toHaveBeenCalledWith("/tmp/wt-fix-bug");
@@ -69,7 +87,9 @@ describe("cancelThreadImpl", () => {
   });
 
   test("does not mark window cancelled if tmux kill fails", async () => {
-    const { factory, killWindow } = createMockTmux(new Error("tmux kill failed"));
+    const { factory, killWindow } = createMockTmux(
+      new Error("tmux kill failed"),
+    );
     const worktreeRemover = createMockWorktreeRemover();
 
     insertTestThread(db, { thread_id: "t1", session_name: "session-1" });
@@ -79,17 +99,27 @@ describe("cancelThreadImpl", () => {
       status: "running",
     });
 
-    const result = (await cancelThreadImpl(db, "t1", factory, worktreeRemover)) as {
+    const result = (await cancelThreadImpl(
+      db,
+      "t1",
+      factory,
+      worktreeRemover,
+    )) as {
       cancelled_windows: number;
       failed_windows: number;
-      details: Array<{ window: string; tmux: string; worktree: string; cancelled: boolean }>;
+      details: Array<{
+        window: string;
+        tmux: string;
+        worktree: string;
+        cancelled: boolean;
+      }>;
     };
 
     expect(result.cancelled_windows).toBe(0);
     expect(result.failed_windows).toBe(1);
-    expect(result.details[0]!.tmux).toBe("failed");
-    expect(result.details[0]!.worktree).toBe("skipped");
-    expect(result.details[0]!.cancelled).toBe(false);
+    expect(result.details[0]?.tmux).toBe("failed");
+    expect(result.details[0]?.worktree).toBe("skipped");
+    expect(result.details[0]?.cancelled).toBe(false);
 
     expect(killWindow).toHaveBeenCalledWith("fix-bug");
     expect(worktreeRemover).not.toHaveBeenCalled();
@@ -126,7 +156,12 @@ describe("cancelThreadImpl", () => {
       status: "running",
     });
 
-    const result = (await cancelThreadImpl(db, "t1", factory, worktreeRemover)) as {
+    const result = (await cancelThreadImpl(
+      db,
+      "t1",
+      factory,
+      worktreeRemover,
+    )) as {
       cancelled_windows: number;
       failed_windows: number;
     };
@@ -174,7 +209,12 @@ describe("cancelThreadImpl", () => {
       status: "done",
     });
 
-    const result = (await cancelThreadImpl(db, "t1", factory, worktreeRemover)) as {
+    const result = (await cancelThreadImpl(
+      db,
+      "t1",
+      factory,
+      worktreeRemover,
+    )) as {
       cancelled_windows: number;
       details: unknown[];
     };
@@ -195,7 +235,9 @@ describe("cancelThreadImpl", () => {
 
   test("handles worktree removal failure gracefully — still marks cancelled", async () => {
     const { factory } = createMockTmux();
-    const worktreeRemover = createMockWorktreeRemover(new Error("worktree remove failed"));
+    const worktreeRemover = createMockWorktreeRemover(
+      new Error("worktree remove failed"),
+    );
 
     insertTestThread(db, { thread_id: "t1", session_name: "session-1" });
     insertTestWindow(db, "t1", {
@@ -203,16 +245,21 @@ describe("cancelThreadImpl", () => {
       status: "running",
     });
 
-    const result = (await cancelThreadImpl(db, "t1", factory, worktreeRemover)) as {
+    const result = (await cancelThreadImpl(
+      db,
+      "t1",
+      factory,
+      worktreeRemover,
+    )) as {
       cancelled_windows: number;
       details: Array<{ tmux: string; worktree: string; cancelled: boolean }>;
     };
 
     // tmux kill succeeded so window is cancelled, even though worktree removal failed
     expect(result.cancelled_windows).toBe(1);
-    expect(result.details[0]!.tmux).toBe("killed");
-    expect(result.details[0]!.worktree).toBe("failed");
-    expect(result.details[0]!.cancelled).toBe(true);
+    expect(result.details[0]?.tmux).toBe("killed");
+    expect(result.details[0]?.worktree).toBe("failed");
+    expect(result.details[0]?.cancelled).toBe(true);
 
     const win = db
       .query("SELECT status FROM windows WHERE thread_id = ?")

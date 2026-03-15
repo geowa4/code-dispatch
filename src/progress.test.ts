@@ -1,7 +1,7 @@
-import { describe, test, expect } from "bun:test";
-import { readProgress } from "./progress.js";
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { readProgress } from "./progress.js";
 
 const tmpDir = join(import.meta.dir, "../.test-tmp-progress");
 
@@ -23,9 +23,9 @@ describe("readProgress", () => {
     const result = await readProgress(filePath);
 
     expect(result).not.toBeNull();
-    expect(result!.status).toBe("done");
-    expect(result!.percent_complete).toBe(100);
-    expect(result!.steps_completed).toEqual(["step1", "step2"]);
+    expect(result?.status).toBe("done");
+    expect(result?.percent_complete).toBe(100);
+    expect(result?.steps_completed).toEqual(["step1", "step2"]);
 
     rmSync(tmpDir, { recursive: true, force: true });
   });

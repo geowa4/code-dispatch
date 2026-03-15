@@ -67,19 +67,19 @@ export function parseConfig(): Config {
   }
 
   const pollInterval = parseInt(flags["poll-interval"]!, 10);
-  if (isNaN(pollInterval) || pollInterval <= 0) {
+  if (Number.isNaN(pollInterval) || pollInterval <= 0) {
     console.error("Fatal: --poll-interval must be a positive number");
     process.exit(1);
   }
 
   const maxTurns = parseInt(flags["max-turns"]!, 10);
-  if (isNaN(maxTurns) || maxTurns <= 0) {
+  if (Number.isNaN(maxTurns) || maxTurns <= 0) {
     console.error("Fatal: --max-turns must be a positive number");
     process.exit(1);
   }
 
   const dashboardPort = parseInt(flags["dashboard-port"]!, 10);
-  if (isNaN(dashboardPort) || dashboardPort <= 0) {
+  if (Number.isNaN(dashboardPort) || dashboardPort <= 0) {
     console.error("Fatal: --dashboard-port must be a positive number");
     process.exit(1);
   }
