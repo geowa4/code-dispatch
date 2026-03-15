@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, beforeAll } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
 // Must set env before dynamic import of config module (which calls requireEnv at top level)
 process.env.AGENTMAIL_API_KEY = "test-api-key";

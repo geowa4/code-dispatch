@@ -1,11 +1,11 @@
-import { describe, test, expect, beforeEach, mock } from "bun:test";
 import type { Database } from "bun:sqlite";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { initDatabase } from "./db.js";
 import {
   createMockMailClient,
   createTestConfig,
-  insertTestThread,
   insertTestMessage,
+  insertTestThread,
 } from "./test-utils.js";
 
 // Mock the Claude Agent SDK query function
@@ -38,7 +38,9 @@ describe("handleMessage", () => {
     const { client } = createMockMailClient();
     mockQueryEvents.push({ type: "result", subtype: "success" });
 
-    const fakeTools = {} as ReturnType<typeof import("./tools.js").createOrchestratorTools>;
+    const fakeTools = {} as ReturnType<
+      typeof import("./tools.js").createOrchestratorTools
+    >;
 
     await handleMessage(
       { threadId: "t1", subject: "Test" },
@@ -51,18 +53,27 @@ describe("handleMessage", () => {
 
     const thread = db
       .query("SELECT * FROM threads WHERE thread_id = ?")
-      .get("t1") as { thread_id: string; session_name: string; sender: string } | null;
+      .get("t1") as {
+      thread_id: string;
+      session_name: string;
+      sender: string;
+    } | null;
     expect(thread).not.toBeNull();
-    expect(thread!.session_name).toStartWith("dispatch-");
-    expect(thread!.sender).toBe("user@example.com");
+    expect(thread?.session_name).toStartWith("dispatch-");
+    expect(thread?.sender).toBe("user@example.com");
   });
 
   test("reuses existing thread row", async () => {
     const { client } = createMockMailClient();
     mockQueryEvents.push({ type: "result", subtype: "success" });
-    insertTestThread(db, { thread_id: "t1", session_name: "dispatch-existing" });
+    insertTestThread(db, {
+      thread_id: "t1",
+      session_name: "dispatch-existing",
+    });
 
-    const fakeTools = {} as ReturnType<typeof import("./tools.js").createOrchestratorTools>;
+    const fakeTools = {} as ReturnType<
+      typeof import("./tools.js").createOrchestratorTools
+    >;
 
     await handleMessage(
       { threadId: "t1", subject: "Test" },
@@ -87,7 +98,9 @@ describe("handleMessage", () => {
     insertTestThread(db, { thread_id: "t1" });
     insertTestMessage(db, "m1", "t1");
 
-    const fakeTools = {} as ReturnType<typeof import("./tools.js").createOrchestratorTools>;
+    const fakeTools = {} as ReturnType<
+      typeof import("./tools.js").createOrchestratorTools
+    >;
 
     // Should not throw
     await handleMessage(
@@ -111,7 +124,9 @@ describe("handleMessage", () => {
     mockQueryError = new Error("SDK explosion");
 
     // Thread exists but no messages_seen — getLastMessageId will throw
-    const fakeTools = {} as ReturnType<typeof import("./tools.js").createOrchestratorTools>;
+    const fakeTools = {} as ReturnType<
+      typeof import("./tools.js").createOrchestratorTools
+    >;
 
     // Should not throw even though error reply fails
     await handleMessage(

@@ -1,10 +1,10 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Database } from "bun:sqlite";
-import type { Config } from "./config.js";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentMailClient } from "agentmail";
+import type { Config } from "./config.js";
 import { getThread } from "./db.js";
-import type { MailThread, MailMessage } from "./mail.js";
-import { replyToThread, getLastMessageId } from "./mail.js";
+import type { MailMessage, MailThread } from "./mail.js";
+import { getLastMessageId, replyToThread } from "./mail.js";
 import type { createOrchestratorTools } from "./tools.js";
 
 export async function handleMessage(
@@ -22,7 +22,13 @@ export async function handleMessage(
     db.run(
       `INSERT INTO threads (thread_id, inbox_id, subject, sender, session_name)
        VALUES (?, ?, ?, ?, ?)`,
-      [thread.threadId, config.inbox, thread.subject ?? null, message.from, sessionName],
+      [
+        thread.threadId,
+        config.inbox,
+        thread.subject ?? null,
+        message.from,
+        sessionName,
+      ],
     );
     existingThread = getThread(db, thread.threadId)!;
   }

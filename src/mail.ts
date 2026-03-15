@@ -1,5 +1,5 @@
-import { AgentMailClient } from "agentmail";
 import type { Database } from "bun:sqlite";
+import { AgentMailClient } from "agentmail";
 import type { Config } from "./config.js";
 
 export function createMailClient(apiKey: string): AgentMailClient {
@@ -18,7 +18,7 @@ function escapeHtml(text: string): string {
 export async function replyToThread(
   mail: AgentMailClient,
   inboxId: string,
-  threadId: string,
+  _threadId: string,
   lastMessageId: string,
   body: string,
 ): Promise<string> {
@@ -76,7 +76,10 @@ export async function pollInbox(
 
   for (const threadItem of threads) {
     // Fetch the full thread to get messages
-    const thread = await mail.inboxes.threads.get(config.inbox, threadItem.threadId);
+    const thread = await mail.inboxes.threads.get(
+      config.inbox,
+      threadItem.threadId,
+    );
     const messages = thread.messages ?? [];
     if (messages.length === 0) continue;
 

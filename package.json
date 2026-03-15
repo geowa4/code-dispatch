@@ -8,6 +8,7 @@
     "test": "bun test",
     "test:ci": "bun test --coverage-reporter=lcov",
     "typecheck": "tsc --noEmit",
+    "lint": "biome check src/",
     "build": "bun build --compile src/main.ts --outfile dispatch --external @x402/fetch"
   },
   "dependencies": {
@@ -16,6 +17,7 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.7",
     "@types/bun": "latest",
     "typescript": "^5.5.0"
   }

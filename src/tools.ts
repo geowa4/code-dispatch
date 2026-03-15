@@ -1,17 +1,19 @@
-import {
-  tool,
-  createSdkMcpServer,
-} from "@anthropic-ai/claude-agent-sdk";
-import { z } from "zod";
 import type { Database } from "bun:sqlite";
-import type { Config } from "./config.js";
+import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentMailClient } from "agentmail";
-import { getThread, countWindowsByStatus, type ThreadRow, type WindowRow } from "./db.js";
-import { listRepos, removeWorktree, findMainWorktree } from "./worktree.js";
+import { z } from "zod";
+import type { Config } from "./config.js";
+import {
+  countWindowsByStatus,
+  getThread,
+  type ThreadRow,
+  type WindowRow,
+} from "./db.js";
+import { getLastMessageId, replyToThread } from "./mail.js";
 import { readProgress } from "./progress.js";
-import { replyToThread, getLastMessageId } from "./mail.js";
 import { TmuxController } from "./tmux.js";
 import { createWorkerImpl } from "./worker.js";
+import { findMainWorktree, listRepos, removeWorktree } from "./worktree.js";
 
 async function buildThreadReport(db: Database, thread: ThreadRow) {
   const windows = db
@@ -76,7 +78,8 @@ async function getThreadStatusImpl(
 export async function cancelThreadImpl(
   db: Database,
   threadId: string,
-  tmuxFactory: (session: string) => TmuxController = (s) => new TmuxController(s),
+  tmuxFactory: (session: string) => TmuxController = (s) =>
+    new TmuxController(s),
   worktreeRemover: (worktreePath: string) => void = (wp) => {
     const repoPath = findMainWorktree(wp);
     removeWorktree(repoPath, wp);
@@ -92,7 +95,12 @@ export async function cancelThreadImpl(
     .query("SELECT * FROM windows WHERE thread_id = ? AND status = 'running'")
     .all(threadId) as WindowRow[];
 
-  const results: Array<{ window: string; tmux: string; worktree: string; cancelled: boolean }> = [];
+  const results: Array<{
+    window: string;
+    tmux: string;
+    worktree: string;
+    cancelled: boolean;
+  }> = [];
 
   for (const win of windows) {
     let tmuxStatus = "skipped";
@@ -132,7 +140,9 @@ export async function cancelThreadImpl(
 
   // Only kill session and mark thread done if no running windows remain
   const remaining = db
-    .query("SELECT COUNT(*) as cnt FROM windows WHERE thread_id = ? AND status = 'running'")
+    .query(
+      "SELECT COUNT(*) as cnt FROM windows WHERE thread_id = ? AND status = 'running'",
+    )
     .get(threadId) as { cnt: number };
 
   if (remaining.cnt === 0) {
@@ -189,9 +199,7 @@ export function createOrchestratorTools(
             "Include all relevant context from the email thread — the worker " +
             "has no access to the conversation history.",
         ),
-      repo_path: z
-        .string()
-        .describe("Path to the git repo under work-dir"),
+      repo_path: z.string().describe("Path to the git repo under work-dir"),
       branch_base: z
         .string()
         .describe("Base branch/commit to create the worktree from")
@@ -200,10 +208,19 @@ export function createOrchestratorTools(
     async (args) => {
       try {
         const result = await createWorkerImpl(args, config, db);
-        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result) }],
+        };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return { content: [{ type: "text" as const, text: `Error creating worker: ${message}` }] };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error creating worker: ${message}`,
+            },
+          ],
+        };
       }
     },
   );
@@ -219,7 +236,9 @@ export function createOrchestratorTools(
     async () => {
       const status = await getAllStatusImpl(db);
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
+        content: [
+          { type: "text" as const, text: JSON.stringify(status, null, 2) },
+        ],
       };
     },
   );
@@ -230,14 +249,14 @@ export function createOrchestratorTools(
       "Use this when the user asks for a status update within an existing task thread. " +
       "Prefer this over get_all_status when the request is scoped to one thread.",
     {
-      thread_id: z
-        .string()
-        .describe("The email thread ID to get status for"),
+      thread_id: z.string().describe("The email thread ID to get status for"),
     },
     async (args) => {
       const status = await getThreadStatusImpl(db, args.thread_id);
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }],
+        content: [
+          { type: "text" as const, text: JSON.stringify(status, null, 2) },
+        ],
       };
     },
   );
@@ -248,14 +267,14 @@ export function createOrchestratorTools(
       "worktrees, and marks windows as cancelled. If no running windows remain, " +
       "kills the tmux session and marks the thread as done.",
     {
-      thread_id: z
-        .string()
-        .describe("The email thread ID to cancel"),
+      thread_id: z.string().describe("The email thread ID to cancel"),
     },
     async (args) => {
       const result = await cancelThreadImpl(db, args.thread_id);
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        content: [
+          { type: "text" as const, text: JSON.stringify(result, null, 2) },
+        ],
       };
     },
   );
@@ -282,7 +301,12 @@ export function createOrchestratorTools(
         lastMsgId = getLastMessageId(db, args.thread_id);
       } catch {
         return {
-          content: [{ type: "text" as const, text: "Error: no messages found for this thread — cannot reply" }],
+          content: [
+            {
+              type: "text" as const,
+              text: "Error: no messages found for this thread — cannot reply",
+            },
+          ],
         };
       }
       const replyId = await replyToThread(
@@ -292,7 +316,9 @@ export function createOrchestratorTools(
         lastMsgId,
         args.body,
       );
-      return { content: [{ type: "text" as const, text: `Reply sent: ${replyId}` }] };
+      return {
+        content: [{ type: "text" as const, text: `Reply sent: ${replyId}` }],
+      };
     },
   );
 
@@ -302,7 +328,9 @@ export function createOrchestratorTools(
     {},
     async () => {
       const repos = listRepos(config.workDir);
-      return { content: [{ type: "text" as const, text: JSON.stringify(repos) }] };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(repos) }],
+      };
     },
   );
 
@@ -324,7 +352,10 @@ export function createOrchestratorTools(
       if (!trimmed.toUpperCase().startsWith("SELECT")) {
         return {
           content: [
-            { type: "text" as const, text: "Error: only SELECT queries allowed" },
+            {
+              type: "text" as const,
+              text: "Error: only SELECT queries allowed",
+            },
           ],
         };
       }
@@ -342,7 +373,9 @@ export function createOrchestratorTools(
         const limited = `SELECT * FROM (${trimmed}) LIMIT ${MAX_QUERY_ROWS}`;
         const rows = db.query(limited).all();
         return {
-          content: [{ type: "text" as const, text: JSON.stringify(rows, null, 2) }],
+          content: [
+            { type: "text" as const, text: JSON.stringify(rows, null, 2) },
+          ],
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

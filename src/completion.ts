@@ -3,9 +3,9 @@ import type { AgentMailClient } from "agentmail";
 import type { Config } from "./config.js";
 import type { WindowRow } from "./db.js";
 import { countWindowsByStatus } from "./db.js";
-import { TmuxController } from "./tmux.js";
+import { getLastMessageId, replyToThread } from "./mail.js";
 import { readProgress } from "./progress.js";
-import { replyToThread, getLastMessageId } from "./mail.js";
+import { TmuxController } from "./tmux.js";
 
 interface RunningWindowRow extends WindowRow {
   session_name: string;
@@ -41,7 +41,13 @@ export async function checkWorkerCompletion(
           `❌ Task failed: ${win.task_summary}\n\n` +
           `Branch: ${win.branch_name}\n\n` +
           `The tmux session was terminated unexpectedly.`;
-        await replyToThread(mail, config.inbox, win.thread_id, lastMsgId, errorBody);
+        await replyToThread(
+          mail,
+          config.inbox,
+          win.thread_id,
+          lastMsgId,
+          errorBody,
+        );
       } catch {
         // best-effort reply; thread may not have messages yet
       }
@@ -83,7 +89,10 @@ export async function checkWorkerCompletion(
         replyBody,
       );
     } catch (err) {
-      console.error(`Failed to send completion reply for window ${win.window_name}:`, err);
+      console.error(
+        `Failed to send completion reply for window ${win.window_name}:`,
+        err,
+      );
     }
 
     db.run(
@@ -111,11 +120,17 @@ export async function checkWorkerCompletion(
          AND (SELECT COUNT(*) FROM windows w WHERE w.thread_id = t.thread_id) > 0
          AND (SELECT COUNT(*) FROM windows w WHERE w.thread_id = t.thread_id AND w.status = 'running') = 0`,
     )
-    .all() as Array<{ thread_id: string; session_name: string; error_count: number }>;
+    .all() as Array<{
+    thread_id: string;
+    session_name: string;
+    error_count: number;
+  }>;
 
   for (const stale of staleThreads) {
     const status = stale.error_count > 0 ? "error" : "done";
-    console.error(`Stale thread ${stale.thread_id} detected — marking as ${status}`);
+    console.error(
+      `Stale thread ${stale.thread_id} detected — marking as ${status}`,
+    );
     db.run(
       "UPDATE threads SET status = ?, updated_at = datetime('now') WHERE thread_id = ?",
       [status, stale.thread_id],

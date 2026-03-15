@@ -1,6 +1,6 @@
-import { Database } from "bun:sqlite";
-import { readProgress, type ProgressReport } from "./progress.js";
+import type { Database } from "bun:sqlite";
 import type { ThreadRow, WindowRow } from "./db.js";
+import { type ProgressReport, readProgress } from "./progress.js";
 
 interface ThreadWithWindows extends ThreadRow {
   windows: Array<WindowRow & { progress: ProgressReport | null }>;
@@ -47,7 +47,7 @@ async function getThreads(
     }
     const progress =
       win.status === "running" ? await readProgress(win.progress_file) : null;
-    windowsByThread.get(win.thread_id)!.push({ ...win, progress });
+    windowsByThread.get(win.thread_id)?.push({ ...win, progress });
   }
 
   return threads.map((t) => ({

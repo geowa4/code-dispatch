@@ -1,7 +1,7 @@
-import { describe, test, expect } from "bun:test";
-import { listRepos, resolveRepoPath } from "./worktree.js";
+import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { listRepos, resolveRepoPath } from "./worktree.js";
 
 const tmpDir = join(import.meta.dir, "../.test-tmp-worktree");
 

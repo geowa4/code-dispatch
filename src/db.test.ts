@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { initDatabase } from "./db.js";
 
 describe("initDatabase", () => {
@@ -21,7 +21,9 @@ describe("initDatabase", () => {
     const db = initDatabase(":memory:");
 
     const indexes = db
-      .query("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%' ORDER BY name")
+      .query(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%' ORDER BY name",
+      )
       .all() as { name: string }[];
 
     const indexNames = indexes.map((i) => i.name);
@@ -34,7 +36,9 @@ describe("initDatabase", () => {
   test("enables foreign keys", () => {
     const db = initDatabase(":memory:");
 
-    const result = db.query("PRAGMA foreign_keys").get() as { foreign_keys: number };
+    const result = db.query("PRAGMA foreign_keys").get() as {
+      foreign_keys: number;
+    };
     expect(result.foreign_keys).toBe(1);
 
     db.close();

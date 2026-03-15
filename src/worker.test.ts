@@ -1,14 +1,11 @@
-import { describe, test, expect, beforeEach, mock } from "bun:test";
 import type { Database } from "bun:sqlite";
-import { initDatabase } from "./db.js";
-import { createWorkerImpl, type WorkerDeps } from "./worker.js";
-import type { TmuxController } from "./tmux.js";
-import {
-  createTestConfig,
-  insertTestThread,
-} from "./test-utils.js";
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { initDatabase } from "./db.js";
+import { createTestConfig, insertTestThread } from "./test-utils.js";
+import type { TmuxController } from "./tmux.js";
+import { createWorkerImpl, type WorkerDeps } from "./worker.js";
 
 const tmpDir = join(import.meta.dir, "../.test-tmp-worker");
 
@@ -35,15 +32,18 @@ function createMockDeps(overrides?: {
     return Promise.resolve();
   });
   const createWorktreeMock = mock(
-    (_repoPath: string, _branchName: string, _baseBranch: string) => worktreePath,
+    (_repoPath: string, _branchName: string, _baseBranch: string) =>
+      worktreePath,
   );
   const removeWorktreeMock = mock(
     (_repoPath: string, _worktreePath: string) => {},
   );
 
   return {
-    createWorktree: createWorktreeMock as unknown as typeof import("./worktree.js").createWorktree,
-    removeWorktree: removeWorktreeMock as unknown as typeof import("./worktree.js").removeWorktree,
+    createWorktree:
+      createWorktreeMock as unknown as typeof import("./worktree.js").createWorktree,
+    removeWorktree:
+      removeWorktreeMock as unknown as typeof import("./worktree.js").removeWorktree,
     tmuxFactory: (_session: string) =>
       ({
         ensureSession,
@@ -93,7 +93,11 @@ describe("createWorkerImpl", () => {
     // Verify DB row
     const win = db
       .query("SELECT * FROM windows WHERE thread_id = ?")
-      .get("t1") as { status: string; window_name: string; task_summary: string };
+      .get("t1") as {
+      status: string;
+      window_name: string;
+      task_summary: string;
+    };
     expect(win.status).toBe("running");
     expect(win.window_name).toBe("fix-auth-bug");
 
@@ -216,7 +220,8 @@ describe("createWorkerImpl", () => {
     const result = await createWorkerImpl(
       {
         thread_id: "t1",
-        task_summary: "this-is-a-very-long-task-summary-that-exceeds-thirty-characters",
+        task_summary:
+          "this-is-a-very-long-task-summary-that-exceeds-thirty-characters",
         prompt: "Fix it",
         repo_path: "my-repo",
         branch_base: "HEAD",

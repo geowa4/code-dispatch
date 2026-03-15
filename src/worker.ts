@@ -1,6 +1,6 @@
-import { join } from "node:path";
-import { writeFileSync } from "node:fs";
 import type { Database } from "bun:sqlite";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Config } from "./config.js";
 import { getThread } from "./db.js";
 import { TmuxController } from "./tmux.js";
@@ -41,7 +41,9 @@ export async function createWorkerImpl(
   const threadRow = getThread(db, args.thread_id);
 
   if (!threadRow) {
-    throw new Error(`Thread ${args.thread_id} not found — it should be created before calling create_worker`);
+    throw new Error(
+      `Thread ${args.thread_id} not found — it should be created before calling create_worker`,
+    );
   }
 
   const sessionName = threadRow.session_name;
@@ -52,7 +54,11 @@ export async function createWorkerImpl(
     .replace(/^-|-$/g, "")
     .slice(0, 30);
   const branchName = `dispatch/${sessionName}/${windowSlug}`;
-  const worktreePath = deps.createWorktree(repoPath, branchName, args.branch_base);
+  const worktreePath = deps.createWorktree(
+    repoPath,
+    branchName,
+    args.branch_base,
+  );
 
   const progressFile = join(worktreePath, ".dispatch-progress.json");
 
