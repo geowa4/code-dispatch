@@ -37,6 +37,7 @@ export function createTestConfig(overrides?: Partial<Config>): Config {
     model: "test-model",
     workerModel: "test-worker-model",
     maxTurns: 10,
+    dashboardPort: null,
     ...overrides,
   };
 }
