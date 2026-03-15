@@ -75,9 +75,14 @@ async function getThreadStatusImpl(
   return await buildThreadReport(db, thread);
 }
 
-async function cancelThreadImpl(
+export async function cancelThreadImpl(
   db: Database,
   threadId: string,
+  tmuxFactory: (session: string) => TmuxController = (s) => new TmuxController(s),
+  worktreeRemover: (worktreePath: string) => void = (wp) => {
+    const repoPath = findMainWorktree(wp);
+    removeWorktree(repoPath, wp);
+  },
 ): Promise<object> {
   const thread = db
     .query("SELECT * FROM threads WHERE thread_id = ?")
@@ -91,48 +96,52 @@ async function cancelThreadImpl(
     .query("SELECT * FROM windows WHERE thread_id = ? AND status = 'running'")
     .all(threadId) as WindowRow[];
 
-  const results: Array<{ window: string; tmux: string; worktree: string }> = [];
+  const results: Array<{ window: string; tmux: string; worktree: string; cancelled: boolean }> = [];
 
   for (const win of windows) {
     let tmuxStatus = "skipped";
     let worktreeStatus = "skipped";
+    let killed = false;
 
-    const tmux = new TmuxController(thread.session_name);
+    const tmux = tmuxFactory(thread.session_name);
     try {
       await tmux.killWindow(win.window_name);
       tmuxStatus = "killed";
+      killed = true;
     } catch {
-      tmuxStatus = "already gone";
+      tmuxStatus = "failed";
     }
 
-    try {
-      const repoPath = findMainWorktree(win.worktree_path);
-      removeWorktree(repoPath, win.worktree_path);
-      worktreeStatus = "removed";
-    } catch {
-      worktreeStatus = "already gone";
-    }
+    if (killed) {
+      try {
+        worktreeRemover(win.worktree_path);
+        worktreeStatus = "removed";
+      } catch {
+        worktreeStatus = "failed";
+      }
 
-    db.run(
-      "UPDATE windows SET status = 'cancelled', finished_at = datetime('now') WHERE window_id = ?",
-      [win.window_id],
-    );
+      db.run(
+        "UPDATE windows SET status = 'cancelled', finished_at = datetime('now') WHERE window_id = ?",
+        [win.window_id],
+      );
+    }
 
     results.push({
       window: win.window_name,
       tmux: tmuxStatus,
       worktree: worktreeStatus,
+      cancelled: killed,
     });
   }
 
-  // If no running windows remain, kill the tmux session entirely
+  // Only kill session and mark thread done if no running windows remain
   const remaining = db
     .query("SELECT COUNT(*) as cnt FROM windows WHERE thread_id = ? AND status = 'running'")
     .get(threadId) as { cnt: number };
 
   if (remaining.cnt === 0) {
     try {
-      const tmux = new TmuxController(thread.session_name);
+      const tmux = tmuxFactory(thread.session_name);
       await tmux.killSession();
     } catch {
       /* session may already be gone */
@@ -145,7 +154,8 @@ async function cancelThreadImpl(
 
   return {
     thread_id: threadId,
-    cancelled_windows: results.length,
+    cancelled_windows: results.filter((r) => r.cancelled).length,
+    failed_windows: results.filter((r) => !r.cancelled).length,
     details: results,
   };
 }
